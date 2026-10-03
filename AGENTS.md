@@ -35,6 +35,10 @@ repo, they almost always want to **mod a game**, or to learn how a game was modd
 - **Engine playbooks:** `skills/mod-any-game/references/engines/`.
 - **Worked examples:** `examples/terraria-tmodloader`, `examples/aoe2-de-civ`,
   `examples/minecraft-gta5-passthrough`.
+- **Nothing installed to mod?** `games/` holds complete projects built from scratch with the same
+  loop (current: `games/ultimate-world-cup`, a zero-build HTML5 canvas game). Each project folder
+  carries its own `README.md` plus a `MODLOG.md` journal, and keeps `um publish check .` and the
+  repo test suite green.
 
 ## Rules (full reasoning in `skills/mod-any-game/references/safety.md`)
 - **What you can mod:** only games the user owns, single-player/offline.
