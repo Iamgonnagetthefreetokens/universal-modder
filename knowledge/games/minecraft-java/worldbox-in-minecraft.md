@@ -119,6 +119,28 @@ JSON lines on TCP. Index-based, append-only, one palette for blocks **and** enti
 9. **`pkill -f` from an agent shell kills the agent.** It matched the agent's own command line; the
    toolkit's case-studies warn about exactly this. Use the process tools, or kill by PID.
 
+## Reading a real WorldBox save (added later, same day)
+
+The bridge above renders worlds the Rust sim *generates*. To render the human's **own** WorldBox world,
+the sim needs a reader for `.wbox`, and the format is undocumented. The way in needs no spec:
+
+- Tile colours are `Biome::color()` in our renderer, and a `.wbox` stores one colour per tile on the same
+  palette (the game's save preview *is* an image of those tiles). So **match colours, not bytes**: step
+  three bytes at a time, keep the longest run of palette colours, and that run is the map.
+- A flat run of tiles has **no row markers**: its width is genuinely undecidable from the bytes. Score
+  every plausible factor pair by neighbour agreement, take the best, and *report the runners-up* —
+  honest ambiguity beats a silent guess. `--width/--height` overrides; on synthetic maps the true shape
+  wins at ~99% vs ~73% for the best wrong fold.
+- Fixtures must be *coherent terrain*. Maps built from `i % 7` are so regular that the scorer prefers a
+  different fold — that is a fixture bug, not a reader bug, and the same trap will hit anyone building
+  colour-matching tests.
+- Palette collisions set the tolerance: Beach `(222,206,150)` and Desert `(226,208,140)` are 120 apart
+  squared, so a tolerance of 12 read beaches as desert. Ours is 8.
+- **Unverified:** the header path (`WBOX` + two little-endian `i32`s, tiles somewhere after) is inferred;
+  no real `.wbox` was ever available here. `worldforge wbox FILE --dump` first, `--width/--height` as the
+  escape hatch, and that is what to say to anyone who asks "will this read *my* save?" — the colour pass
+  answers for the terrain, nothing can answer for villages or history.
+
 ## Assets
 None from either game. Every block and mob the mod places is one Minecraft already ships; the sim's own
 art is flat-colour hexes in a PNG the crate writes itself. Nothing from WorldBox is used at all.
@@ -133,6 +155,8 @@ Four protocol bugs and one renderer-framing bug, all found by tests rather than 
 - Should Minecraft fights mean something? That needs damage to travel back to the sim — the passthrough
   example's mob-proxy pattern is the place to start.
 - A rolling canvas that follows the player, instead of one fixed rectangle of the world.
+- Does `wbox` read a real save? First run is `--dump` on the human's own file; the colour pass is
+  expected to survive, the header path is the part a real file can falsify.
 - Replacing the block-based build with a custom renderer (the passthrough route: publish colour+depth and
   composite) would look far better but needs a second process and shared memory; the block route needed
   no GPU access at all.

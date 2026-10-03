@@ -525,7 +525,6 @@ impl World {
     pub fn seed_life(&mut self, civs: u32, animals: u32, monsters: u32) -> Vec<u32> {
         const RACES: [Race; 4] = [Race::Human, Race::Elf, Race::Dwarf, Race::Orc];
         const MIN_VILLAGE_GAP: i32 = 12;
-        let mut founded = Vec::new();
         let mut sites: Vec<Hex> = Vec::new();
         for i in 0..civs {
             let race = RACES[(i as usize) % RACES.len()];
@@ -536,10 +535,7 @@ impl World {
                 if sites.iter().any(|s| h.distance(*s) < MIN_VILLAGE_GAP) {
                     continue;
                 }
-                let avoid = sites
-                    .iter()
-                    .copied()
-                    .min_by_key(|s| h.distance(*s));
+                let avoid = sites.iter().copied().min_by_key(|s| h.distance(*s));
                 let score = self.site_score(h, race, avoid);
                 if score <= 0 {
                     continue;
@@ -552,16 +548,32 @@ impl World {
                     best = Some((score, h));
                 }
             }
-            let Some(site) = best.map(|(_, h)| h) else { continue };
+            if let Some((_, site)) = best {
+                sites.push(site);
+            }
+        }
+        self.seed_life_at(&sites, animals, monsters)
+    }
+
+    /// Settle at exactly these sites, then scatter wildlife and monsters.
+    ///
+    /// [`World::seed_life`] picks its own sites; this is the same settlement and
+    /// the same wildlife rules with the sites handed in, which is what an
+    /// imported map needs (the reader knows where the land is, not where the
+    /// villages of the original save were).
+    pub fn seed_life_at(&mut self, sites: &[Hex], animals: u32, monsters: u32) -> Vec<u32> {
+        const RACES: [Race; 4] = [Race::Human, Race::Elf, Race::Dwarf, Race::Orc];
+        let mut founded = Vec::new();
+        for (i, site) in sites.iter().enumerate() {
+            let race = RACES[i % RACES.len()];
             let mut founders = Vec::new();
             for _ in 0..FOUNDING_POP {
-                if let Some(id) = self.spawn_unit(race, site, UnitKind::Civilian) {
+                if let Some(id) = self.spawn_unit(race, *site, UnitKind::Civilian) {
                     founders.push(id);
                 }
             }
-            if let Some(vid) = self.found_village(site, race, &founders, None, None) {
+            if let Some(vid) = self.found_village(*site, race, &founders, None, None) {
                 founded.push(vid);
-                sites.push(site);
             }
         }
         for _ in 0..animals {

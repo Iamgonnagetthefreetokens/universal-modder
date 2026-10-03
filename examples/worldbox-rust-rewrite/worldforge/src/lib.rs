@@ -45,6 +45,7 @@ pub mod sim;
 pub mod terrain;
 pub mod units;
 pub mod village;
+pub mod wbox;
 pub mod world;
 pub mod worldgen;
 

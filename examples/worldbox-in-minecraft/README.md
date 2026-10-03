@@ -193,8 +193,57 @@ places itself, and `/wf clear` takes it away again).
 - The mod keeps its entities tagged `wfbox`, so `/kill @e[tag=wfbox]` cleans up
   after it (and `/wf clear` does the same plus the terrain).
 
+## Bring your own WorldBox map
+
+Everything above renders a world *worldforge generates*. To walk around **your own**
+WorldBox world, start from the save the game wrote instead of a seed:
+
+```sh
+ls ~/mkarpenko/WorldBox/saves/                     # PC save folders; map.wbox is the terrain
+
+# 1. look inside without importing anything: size, shape candidates, biome mix
+worldforge wbox ~/mkarpenko/WorldBox/saves/save1/map.wbox --dump
+
+# 2. if the shape looks wrong, say the size (the tile run alone is ambiguous):
+worldforge wbox .../map.wbox --width 96 --height 64 --png map.png
+
+# 3. import it: the save's terrain, with new people settled on it
+worldforge wbox .../map.wbox --civs 4 --animals 30 --out my-world.wfz
+worldforge show my-world.wfz --png my-world.png
+
+# 4. or go straight to the bridge — the save *is* the world
+worldforge serve --wbox .../map.wbox --civs 4 --animals 30 --tps 10
+```
+
+Then exactly as above: Fabric client with the mod, superflat **void** world, and the
+world appears on the canvas (start the sim before the client; `/wf status` confirms).
+`mcview --connect 127.0.0.1:25607` shows the same thing without Minecraft.
+
+`--dump` first, always. The importer reads the terrain by matching tile colours
+against the biome palette, so it works on a format it has never seen — but a flat
+run of tiles carries no row markers, so it can fold into more than one rectangle and
+only you can say which one is your island. `--width/--height` decides it, and it is
+also the fix if a save has a header this reader misreads.
+
+- **What imports:** terrain — biome per tile, elevation, trees, ore.
+- **What does not:** villages, borders, kings, loyalty, history. Those are not in the
+  bytes this reader can see, so `--civs/--animals/--monsters` settle *new* villages on
+  your terrain. Your coastline survives; your empire does not.
+- **Android/iOS:** `Android/data/com.mkarpenko.worldbox/files/saves/save#/` and
+  `.../WorldBox/Documents/saves/save#/` — same `map.wbox` inside.
+
+**Honest limit:** no real `.wbox` was available while this was written. The colour
+pass needs no format knowledge (it is built on the game's own palette) and the layout
+search handles the ambiguity by showing you its candidates, but the optional header
+path is inferred, not confirmed against a file the game wrote. If a real save
+disagrees, `--width/--height` gets you through and `worldforge/src/wbox.rs` is where
+the fix goes.
+
 ## What is not done yet
 
+- **The save reader has never seen a real save.** See the honest limit above: `--dump`
+  and `--width/--height` exist precisely because the first real file is allowed to
+  disagree with the reader.
 - **Not playtested in Minecraft.** It was built against the same 26.3 API the
   GTA V passthrough in this repo targets and verified end to end with `mcview` and
   a Python client, but no one has run it in a real client — the compile would be

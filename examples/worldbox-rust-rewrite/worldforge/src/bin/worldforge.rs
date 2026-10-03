@@ -43,6 +43,10 @@ commands
   mcview --connect HOST:PORT [--png PREFIX] [--every N] [--scale N]
         be the Minecraft side without Minecraft: build the block world and
         write isometric PNGs of it (needs a `serve` to connect to)
+  wbox <file.wbox> [--out world.wfz] [--png preview.png] [--civs N] [--width W]
+        [--height H] [--flat] [--dump]
+        read a WorldBox map and rebuild its terrain here; --dump prints what the
+        reader found inside the file without importing anything
   powers
        list every god power by category
   info <save>
@@ -82,6 +86,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "show" => show(rest),
         "script" => script_cmd(rest),
         "serve" => serve(args, rest),
+        "wbox" => wbox_cmd(rest),
         "mcview" => mcview(rest),
         "powers" => powers(),
         "info" => info(rest),
@@ -307,20 +312,124 @@ fn script_cmd(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `worldforge wbox`: read a WorldBox map, and optionally make a world of it.
+fn wbox_cmd(args: &[String]) -> Result<(), String> {
+    use worldforge::wbox;
+    let files = positional(args, &["--out", "--png", "--civs", "--animals", "--monsters", "--width", "--height"]);
+    let path = files
+        .first()
+        .ok_or("usage: worldforge wbox <file.wbox> [--out world.wfz] [--png preview.png] [--dump]")?;
+    let bytes = std::fs::read(path).map_err(|e| format!("read {path}: {e}"))?;
+    if has_flag(args, "--dump") {
+        print!("{}", wbox::inspect(&bytes));
+        return Ok(());
+    }
+
+    let width = flag(args, "--width").map(|v| v.parse::<u16>()).transpose();
+    let height = flag(args, "--height").map(|v| v.parse::<u16>()).transpose();
+    let map = match (width, height) {
+        (Ok(Some(w)), Ok(Some(h))) => wbox::parse_with_size(&bytes, w, h),
+        _ => wbox::parse(&bytes),
+    }
+    .map_err(|e| format!("{path}: {e}"))?;
+
+    let civs = flag(args, "--civs")
+        .map(|s| s.parse::<u32>())
+        .transpose()
+        .map_err(|_| "--civs must be a number".to_string())?
+        .unwrap_or(4);
+    let animals = flag(args, "--animals")
+        .map(|s| s.parse::<u32>())
+        .transpose()
+        .map_err(|_| "--animals must be a number".to_string())?
+        .unwrap_or(30);
+    let monsters = flag(args, "--monsters")
+        .map(|s| s.parse::<u32>())
+        .transpose()
+        .map_err(|_| "--monsters must be a number".to_string())?
+        .unwrap_or(0);
+    let options = wbox::ImportOptions {
+        civs,
+        animals,
+        monsters,
+        terrain_height: !has_flag(args, "--flat"),
+    };
+
+    println!("{path}: {}", map.note);
+    println!("{}", map.summary());
+    let world = wbox::to_world(&map, options);
+    println!(
+        "{} villages settled, {} units, {}x{} world",
+        world.villages.iter().filter(|v| v.alive).count(),
+        world.units.iter().filter(|u| u.alive).count(),
+        world.width,
+        world.height
+    );
+
+    if let Some(path) = flag(args, "--png") {
+        let scale = flag(args, "--scale")
+            .map(|s| s.parse::<u32>())
+            .transpose()
+            .map_err(|_| "--scale must be a number".to_string())?
+            .unwrap_or(4)
+            .clamp(1, 32);
+        let img = wbox::render(&map, scale);
+        worldforge::png::write_png(&path, &img).map_err(|e| format!("png: {e}"))?;
+        eprintln!("wrote {path} ({}x{}) - the terrain as the reader saw it", img.width, img.height);
+    }
+    if let Some(path) = flag(args, "--out") {
+        let n = save_to_file(&path, &world).map_err(|e| format!("save: {e}"))?;
+        println!("saved {path} ({n} bytes) - now run it:");
+        println!("  worldforge step {path} 2000 --out {path}");
+        println!("  worldforge show {path} --color");
+        println!("  worldforge serve --port 25607   # and start a Minecraft client on it");
+    }
+    Ok(())
+}
+
 /// `worldforge serve`: publish the running world on the loopback bridge.
 fn serve(args: &[String], rest: &[String]) -> Result<(), String> {
     if has_flag(rest, "--help") || has_flag(rest, "-h") {
         println!(
             "usage: worldforge serve [--port N] [--tps N] [--seed N] [--size tiny|small|medium|large|huge]\n\
              \x20                      [--type T] [--land 5..95] [--civs N] [--animals N] [--monsters N]\n\
+             \x20                      [--wbox FILE.wbox [--width W --height H]]\n\
              \n\
              Runs the simulation and publishes it for a Minecraft client on 127.0.0.1.\n\
              Gen options are the same as `worldforge demo`; see `worldforge --help`."
         );
         return Ok(());
     }
-    let mut world = make_world(rest)?;
-    seed_world(&mut world, rest)?;
+    // A WorldBox map, if given, replaces world generation entirely: the save
+    // *is* the terrain; the flags only decide who lives on it.
+    let world = if let Some(path) = flag(rest, "--wbox") {
+        let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+        let size = match (flag(rest, "--width"), flag(rest, "--height")) {
+            (Some(w), Some(h)) => Some((
+                w.parse::<u16>().map_err(|_| "--width must be a number".to_string())?,
+                h.parse::<u16>().map_err(|_| "--height must be a number".to_string())?,
+            )),
+            _ => None,
+        };
+        let map = match size {
+            Some((w, h)) => worldforge::wbox::parse_with_size(&bytes, w, h),
+            None => worldforge::wbox::parse(&bytes),
+        }
+        .map_err(|e| format!("{path}: {e}"))?;
+        let options = worldforge::wbox::ImportOptions {
+            civs: flag(rest, "--civs").and_then(|s| s.parse().ok()).unwrap_or(4),
+            animals: flag(rest, "--animals").and_then(|s| s.parse().ok()).unwrap_or(30),
+            monsters: flag(rest, "--monsters").and_then(|s| s.parse().ok()).unwrap_or(0),
+            terrain_height: !has_flag(rest, "--flat"),
+        };
+        println!("{path}: {}", map.note);
+        println!("{}", map.summary());
+        worldforge::wbox::to_world(&map, options)
+    } else {
+        let mut world = make_world(rest)?;
+        seed_world(&mut world, rest)?;
+        world
+    };
     let port = flag(rest, "--port")
         .map(|s| s.parse::<u16>())
         .transpose()

@@ -20,6 +20,11 @@ cargo test  --offline
 ./target/release/worldforge step world.wfz 500 --out world2.wfz
 ./target/release/worldforge powers                                # list all 49 god powers
 
+# bring a real WorldBox map with you (see ../worldbox-in-minecraft/README.md):
+./target/release/worldforge wbox ~/mkarpenko/WorldBox/saves/save1/map.wbox --dump
+./target/release/worldforge wbox map.wbox --civs 4 --png map.png --out my-world.wfz
+./target/release/worldforge serve --wbox map.wbox --civs 4          # and let Minecraft watch it
+
 # and the Minecraft bridge (see ../worldbox-in-minecraft):
 ./target/release/worldforge serve --size large --seed 20241003     # publish for a Fabric mod
 ./target/release/worldforge mcview --connect 127.0.0.1:25607       # be the mod, without Minecraft
@@ -42,6 +47,7 @@ cargo test  --offline
 | `save` | Hand-written binary codec, versioned, round-trips exactly |
 | `render` | ASCII/ANSI terminal map, xterm-256 colour, an RGB frame renderer and a text panel |
 | `png` | In-tree PNG encoder (CRC-32 + stored-deflate zlib), byte-for-byte reproducible |
+| `wbox` | Reads a WorldBox `.wbox` map: the biome palette, the longest tile run, layout scoring for the shape, a header path, `--dump` inspection, terrain import and a PNG of what it read |
 | `bridge` | The Minecraft mapping: biome → block, tile → column, building → structure, unit → mob, kingdom → concrete, plus the JSON messages |
 | `serve` | `worldforge serve`: runs the world and publishes it on `127.0.0.1`, takes commands back |
 | `json` / `mcworld` | A small JSON reader, and the Minecraft side of the bridge (wire → block world → isometric PNG) |
@@ -121,3 +127,8 @@ PNG writer's output is byte-stable.
   or `wgpu`), and the crate is deliberately dependency-free so that stays easy to bolt on.
 * It was not playtested in WorldBox itself, because the game isn't installed in this sandbox — the
   oracles are the unit tests, the determinism hash and the rendered frames.
+* **The `.wbox` reader has never seen a real `.wbox`.** It is built on the biome colours the game draws
+  with (so it can read a map whose format it does not know) and its layout search is exercised with
+  synthetic files; the header path (`WBOX` + width/height) is *inferred*, not confirmed. Run `wbox FILE
+  --dump` first, and `--width/--height` if the shape looks wrong. It imports **terrain**, not villages
+  or history.

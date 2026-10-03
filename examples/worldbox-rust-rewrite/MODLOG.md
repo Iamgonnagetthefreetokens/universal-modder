@@ -115,12 +115,45 @@ Answer: the simulation stays here in Rust; Minecraft becomes the renderer. New e
    inside Minecraft — the sandbox has no client, and 26.3's API could not be compiled against here
    either. That is stated in the example's README rather than glossed over.
 
+## Reading a real WorldBox save (`wbox`)
+
+Asked "can I fully run a WorldBox world in Minecraft": the bridge already rendered *worldforge* worlds,
+so the missing half was **their own** save. WorldBox ships no format spec and community maps travel as
+`.wbox` files on the game's Discord, so the reader is built on the two public facts that need none: the
+files themselves, and the rule that a save preview is an image of the tiles inside it — tile colours are
+`Biome::color()`, so a map can be read by colour-matching alone.
+
+The interesting problem: a flat run of tile colours has **no row markers**, so its width is genuinely
+undecidable. The first attempt (guess the width from repeated rows) always failed; it is recorded as a
+dead end and not to be retried. Replaced with `candidate_layouts`: score every plausible factor pair by
+how well neighbouring tiles agree, take the best, report the runners-up in `note`. Synthetic maps score
+~99% on the true shape against ~73% for the best wrong fold, and an ambiguous map *says* it is ambiguous
+instead of guessing silently. `parse_with_size(bytes, w, h)` is the manual override.
+
+Fixture lesson: synthetic saves built from `match i % 7` are too regular and the search prefers a
+different fold — the fixtures had to become spatially coherent terrain (ocean/forest/mountain), which is
+also what a real map looks like. Beach and desert sit 120 apart squared in the palette, so
+`COLOR_TOLERANCE` is 8, not 12.
+
+`to_world(&map, ImportOptions)` rebuilds biome/elevation/trees/ore into a fresh world and settles it via
+the new `Village::seed_life_at(sites, animals, monsters)` (a refactor of `seed_life`, which now picks
+sites and delegates). CLI: `worldforge wbox FILE [--dump] [--width W --height H] [--civs N --animals N
+--monsters N] [--png out --scale N] [--out world.wfz]`, and `serve --wbox FILE` puts that imported world
+straight on the Minecraft bridge. Verified end to end: a synthetic 96x64 save with junk around the tile
+block parsed by its header, imported, 4 villages founded, 400 ticks stepped, served, then `mcview`
+tracked 102 units and set 31,381 blocks — the save's coastline rendered as Minecraft blocks.
+
+**Never seen a real `.wbox`.** The header path (`WBOX` + two LE i32s, tiles after other header fields) is
+inferred, and the module docs say so; the colour pass needs no format knowledge but cannot recover
+villages or history either. `--dump` and `--width/--height` are the documented first-run workflow.
+
 ## Numbers
 
 * ~7,000 lines of Rust (about 40% of that tests), zero dependencies, `cargo build --offline` clean.
 * 145 tests: unit tests per module + `tests/e2e.rs` running the real binary.
 * 49 god powers, 24 biomes, 36 species, 13 ages, 13 building kinds.
-* 185 tests now: 166 lib + 10 e2e + 8 bridge (`tests/mc.rs`, real sockets) + 1 doc.
+* 185 tests: 166 lib + 10 e2e + 8 bridge (`tests/mc.rs`, real sockets) + 1 doc. The save reader brings
+  that to 197: 178 lib (12 of them `wbox`) + 10 + 8 + 1; clippy clean, still zero dependencies.
 * The bridge: 116-name palette, ~9k blocks placed for a 96×64 map, 60 simulated ticks/s over one socket.
 * 100 years of a 96×64 world (9 villages, 3 kingdoms, 121 people alive) in ~2 s release, ~25 s debug;
   the run's hash is `0xd5c223e4a58f50c1`.
@@ -139,5 +172,7 @@ Answer: the simulation stays here in Rust; Minecraft becomes the renderer. New e
   whether Minecraft fights should feed damage back into the simulation.
 * A playable window (`macroquad`) over the same `World` — the CLI/script layer already gives it a brain.
 * Port the save format into a "world share" text format so a run can be pasted into a chat.
-* If the human wants their own install read: a separate, opt-in tool that reads their WorldBox saves on
-  their machine; nothing in this crate needs it.
+* `wbox` has still never met a real save. The next step is running it against the human's own file (their
+  choice, their machine): `--dump` first, `--width/--height` if the shape is wrong, and the header path in
+  `src/wbox.rs` is what gets fixed if it is wrong. Villages, borders and history are *not* imported and
+  would be a different, much harder job (they are not in the bytes this reader can see).
