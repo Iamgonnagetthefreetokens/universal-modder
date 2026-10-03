@@ -1,0 +1,43 @@
+# rise-and-fall.wf — a small world that grows kingdoms, then breaks them.
+#
+#   cargo run --offline -- script examples/rise-and-fall.wf
+#
+# Everything here is deterministic: same seed, same script, same hash.
+
+gen 80 56 1312 type continents land 58
+
+# Four peoples, forty animals, two things that should have stayed asleep.
+life 4 40 2
+echo --- the world wakes up ---
+villages
+
+# Ten years of peace and growth: villages appear, expand and bump into each other.
+step 10y
+echo --- ten years in ---
+summary
+villages
+census
+
+# A good age, then a disaster the world has to live through.
+age wonders
+step 5y
+cast meteor @random
+cast acid_rain @random
+step 2y
+
+# A dragon wakes up, and an eruption buries the north.
+spawn dragon monster @random
+cast volcano @random
+step 5y
+
+echo --- after the disasters ---
+summary
+villages
+hash
+panel 78
+render
+
+# Write the state down, then keep playing from where we left off.
+save /tmp/rise-and-fall.wfz
+step 5y
+hash

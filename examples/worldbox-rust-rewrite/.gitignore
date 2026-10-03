@@ -1,0 +1,5 @@
+# Rust build output
+worldforge/target/
+# Frames the growth run writes; the year-100 frame is kept as evidence.
+artifacts/frames/*.png
+!artifacts/frames/year-100.png

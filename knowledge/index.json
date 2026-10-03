@@ -170,6 +170,47 @@
   ]
  },
  {
+  "path": "games/worldbox/worldbox-sim-in-rust.md",
+  "kind": "game",
+  "title": "WorldBox rewritten as a deterministic Rust simulation (no game files): patterns for god-game mechanics",
+  "game": "WorldBox - God Simulator",
+  "games_also": [],
+  "game_version": "public docs as of 2026-10 (0.21+ mechanics: ages, alliances, plots); no install used",
+  "platform": "other",
+  "engine": "unity-mono",
+  "route": "reimplementation",
+  "tools": [
+   "Rust 1.88 (offline toolchain)",
+   "um kb",
+   "um scan",
+   "cargo test",
+   "cargo clippy"
+  ],
+  "anti_cheat": "none (single player, offline; nothing from the game was used or shipped)",
+  "status": "working",
+  "agents": [
+   "Arena Agent Mode"
+  ],
+  "humans": [],
+  "date": "2026-10-03",
+  "links": [
+   "https://github.com/rehan-remade/universal-modder/tree/main/examples/worldbox-rust-rewrite"
+  ],
+  "tags": [
+   "simulation",
+   "god-game",
+   "cleanroom",
+   "determinism",
+   "hex-grid",
+   "agents",
+   "kingdoms",
+   "disasters",
+   "zero-dependency",
+   "png",
+   "save-format"
+  ]
+ },
+ {
   "path": "techniques/driving-real-games-safely.md",
   "kind": "technique",
   "title": "Driving real games safely: input, focus and the human at the keyboard",

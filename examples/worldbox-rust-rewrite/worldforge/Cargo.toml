@@ -1,0 +1,29 @@
+[package]
+name = "worldforge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "A from-scratch Rust reimplementation of a WorldBox-style god simulator: hex world generation, races, villages, kingdoms, wars, ages and god powers."
+license = "MIT"
+publish = false
+
+# Deliberately zero dependencies (not even `rand` or `serde`): the whole sim,
+# the RNG, the save codec, the ASCII renderer and the PNG encoder are in-tree.
+# That keeps the crate deterministic, auditable and buildable offline.
+[dependencies]
+
+[lib]
+name = "worldforge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "worldforge"
+path = "src/bin/worldforge.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "unwind"
+
+[workspace]

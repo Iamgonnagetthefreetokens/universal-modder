@@ -1,0 +1,29 @@
+seeded 4 villages, 40 animals, 0 monsters
+png artifacts/frames/year-000.png (384x256)
+png artifacts/frames/year-020.png (384x256)
+png artifacts/frames/year-040.png (384x256)
+png artifacts/frames/year-060.png (384x256)
+png artifacts/frames/year-080.png (384x256)
+png artifacts/frames/year-100.png (384x256)
+year 100 t2000 | pop 121 | villages 9 | kingdoms 3 | animals 28 | monsters 0 …
+------------------------------------------------------------------------------
+tick 2000  hash 0xd5c223e4a58f50c1  rng 09e31956f7f9ecce
+age: Age of Hope (100/106 years)
+effects in flight: 0
+------------------------------------------------------------------------------
+     Elf: 34
+   Dwarf: 32
+     Orc: 55
+ animals: 28
+monsters: 0
+------------------------------------------------------------------------------
+chronicle
+  y  98 [      war] Aelsari Empire declares war on League of Khazstone
+  y  98 [    peace] Aelsari Empire and League of Khazstone make peace
+  y  98 [    peace] Krugcrush Empire and League of Khazstone make peace
+  y  99 [    peace] Krugcrush Empire and Aelsari Empire make peace
+  y  99 [      war] Krugcrush Empire declares war on Aelsari Empire
+  y  99 [      war] Aelsari Empire declares war on League of Khazstone
+  y  99 [    peace] Aelsari Empire and League of Khazstone make peace
+  y  99 [      war] Aelsari Empire declares war on League of Khazstone
+hash 0xd5c223e4a58f50c1

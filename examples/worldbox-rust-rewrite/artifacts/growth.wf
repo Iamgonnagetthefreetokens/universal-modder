@@ -1,0 +1,16 @@
+# A hundred years of a four-civilisation world, rendered as it grows.
+gen 96 64 20241003 type continents land 58
+life 4 40 0
+png artifacts/frames/year-000.png 4
+step 20y
+png artifacts/frames/year-020.png 4
+step 20y
+png artifacts/frames/year-040.png 4
+step 20y
+png artifacts/frames/year-060.png 4
+step 20y
+png artifacts/frames/year-080.png 4
+step 20y
+png artifacts/frames/year-100.png 4
+panel 78
+hash
