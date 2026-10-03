@@ -141,6 +141,31 @@ the sim needs a reader for `.wbox`, and the format is undocumented. The way in n
   escape hatch, and that is what to say to anyone who asks "will this read *my* save?" — the colour pass
   answers for the terrain, nothing can answer for villages or history.
 
+## Watching it develop (same day, third piece)
+
+The Minecraft end is one way to watch a living world; the map in a browser tab is
+the other, and for "what are the civilizations doing" it is the better one.
+`worldforge watch` (module `live.rs`, page `live_page.html`, both compiled into the
+binary) is a hand-written HTTP server on `std::net` plus a canvas page:
+
+- **One thread owns the world and the socket.** Requests are answered between ticks:
+  no locks, no channels, and a slow client slows the *simulation* instead of
+  queueing frames. State (`pause`, `step`, `tps`, `power=<i>&col&row`,
+  `spawn=<i>&col&row`) arrives as a plain query string, so there is no JSON body
+  parsing on the server and the CLI can drive the same world by hand.
+- **Split the endpoints by how often the data changes**, and give the slow layers a
+  revision number: `/terrain` (biome + quantised elevation, base36, ~13 KB for
+  96×64), `/territory` (~6 KB), `/state` (~5 KB, several times a second). The page
+  refetches a layer only when its revision moves — the server knows by comparing the
+  string it just rebuilt with the one it sent last.
+- **Bind `0.0.0.0` and use relative URLs.** A dev-preview proxy is a different
+  origin on a different host; anything that hard-codes `localhost`, checks `Host`,
+  or sends `X-Frame-Options` breaks it. `/state` etc. as relative paths just work.
+- **Territory is factions, not kingdoms.** A village that has not crowned a king
+  still owns land; if the layer says "nobody", a young world looks empty. Give it a
+  stand-in (race colour) and send the list the client needs to resolve it. 62
+  characters of alphabet (`0-9a-zA-Z`) is plenty of factions; base36 is not.
+
 ## Assets
 None from either game. Every block and mob the mod places is one Minecraft already ships; the sim's own
 art is flat-colour hexes in a PNG the crate writes itself. Nothing from WorldBox is used at all.
@@ -155,6 +180,8 @@ Four protocol bugs and one renderer-framing bug, all found by tests rather than 
 - Should Minecraft fights mean something? That needs damage to travel back to the sim — the passthrough
   example's mob-proxy pattern is the place to start.
 - A rolling canvas that follows the player, instead of one fixed rectangle of the world.
+- Should the live page push instead of poll? Polling at 3 Hz is 20 KB/s and simple;
+  WebSockets or SSE would remove the latency between a click and seeing the effect.
 - Does `wbox` read a real save? First run is `--dump` on the human's own file; the colour pass is
   expected to survive, the header path is the part a real file can falsify.
 - Replacing the block-based build with a custom renderer (the passthrough route: publish colour+depth and

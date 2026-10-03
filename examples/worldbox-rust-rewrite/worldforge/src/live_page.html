@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>worldforge — live</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#12161f; --panel2:#171c27; --line:#232a38; --ink:#e8ecf4;
+    --dim:#8b96ab; --gold:#e8c76a; --red:#ef5d5d; --green:#6fcf7f; --blue:#6aa9ff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+    font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden}
+  #map{position:absolute;inset:0;display:block;cursor:crosshair;background:
+    radial-gradient(1200px 700px at 30% 0%,#111725 0%,#0b0d12 60%)}
+  #side{position:absolute;top:0;right:0;height:100%;width:390px;
+    background:linear-gradient(180deg,rgba(18,22,31,.96),rgba(11,13,18,.96));
+    border-left:1px solid var(--line);overflow-y:auto;padding:12px 12px 40px;backdrop-filter:blur(6px)}
+  h1{font-size:14px;margin:0;letter-spacing:.5px}
+  .dot{color:var(--green)} .dot.off{color:var(--dim)}
+  .tiny{font-size:11px;color:var(--dim)}
+  section{border-top:1px solid var(--line);padding:10px 0 6px;margin-top:8px}
+  section h2{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:0 0 6px}
+  .row{display:flex;gap:6px;flex-wrap:wrap}
+  button,select,input[type=range]{font:inherit;color:inherit}
+  button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 9px;cursor:pointer}
+  button:hover{border-color:#33405a}
+  button.on{background:#22304a;border-color:#3d5a8c;color:#cfe1ff}
+  select{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px;max-width:100%}
+  input[type=range]{width:100%}
+  .agebar{position:relative;height:16px;background:#1b2130;border-radius:8px;overflow:hidden;margin-top:6px;border:1px solid var(--line)}
+  .agebar>i{position:absolute;inset:0;width:0;background:linear-gradient(90deg,#3a4a86,#7d6ad0);display:block}
+  .agebar>span{position:absolute;inset:0;text-align:center;font-size:11px;line-height:16px;color:#dfe7ff}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  td,th{text-align:left;padding:2px 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+  th{color:var(--dim);font-weight:400;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+  tr.k:hover{background:#1a2030;cursor:pointer}
+  .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;border:1px solid rgba(255,255,255,.35)}
+  .num{text-align:right;color:#cbd6ea}
+  ul.news{list-style:none;margin:0;padding:0;font-size:12px;max-height:190px;overflow-y:auto}
+  ul.news li{padding:2px 0;border-bottom:1px dashed #1c2230;color:#c9d2e2}
+  ul.news b{color:var(--gold);font-weight:400}
+  .k-age{color:#c3a9ff} .k-war{color:var(--red)} .k-village{color:var(--green)}
+  .k-kingdom{color:var(--gold)} .k-disaster{color:#ff9a5c} .k-death{color:#b9c2d4} .k-battle{color:#ff7a7a}
+  #stats{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;font-size:12px}
+  #stats div{display:flex;justify-content:space-between;border-bottom:1px dashed #1c2230;padding:1px 0}
+  #stats span:last-child{color:#dfe7ff}
+  #toast{position:absolute;left:16px;bottom:16px;background:#1b2437;border:1px solid #33405a;
+    padding:8px 12px;border-radius:8px;max-width:60ch;opacity:0;transition:opacity .25s;pointer-events:none}
+  #toast.show{opacity:1}
+  #tip{position:absolute;padding:6px 8px;background:rgba(12,16,24,.94);border:1px solid var(--line);
+    border-radius:6px;font-size:11px;pointer-events:none;opacity:0;transition:opacity .12s;max-width:280px;z-index:5}
+  #tip.show{opacity:1}
+  #aimbar{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:#33264a;border:1px solid #6b4fa8;
+    padding:5px 12px;border-radius:999px;font-size:12px;display:none}
+  #pausebadge{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#ffffff22;
+    font-size:64px;font-weight:700;letter-spacing:.1em;pointer-events:none;display:none}
+  #legend{position:absolute;left:12px;bottom:12px;font-size:11px;color:var(--dim)}
+  #legend b{color:#cbd6ea;font-weight:400}
+</style>
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<div id="aimbar"></div>
+<div id="pausebadge">PAUSED</div>
+<div id="tip"></div>
+<div id="toast"></div>
+<div id="legend">
+  <b>drag</b> pan · <b>wheel</b> zoom · <b>space</b> pause · <b>s</b> step · <b>f</b> fit · <b>click</b> cast/place when aimed
+</div>
+
+<aside id="side">
+  <header>
+    <h1><span class="dot" id="live">●</span> worldforge <span class="tiny" id="who"></span></h1>
+    <div class="tiny" id="clock">connecting…</div>
+    <div class="tiny" id="hash"></div>
+    <div class="agebar"><i id="agefill"></i><span id="agename">—</span></div>
+  </header>
+
+  <section>
+    <h2>Controls</h2>
+    <div class="row">
+      <button id="b-pause">Pause</button>
+      <button id="b-step">Step 10</button>
+      <button id="b-run">Run 100</button>
+      <button id="b-fit">Fit map</button>
+      <button id="b-follow">Follow biggest</button>
+    </div>
+    <div class="tiny" style="margin-top:8px">simulation speed <span id="tpsv"></span></div>
+    <input type="range" id="tps" min="1" max="60" value="20">
+    <div class="tiny">page refresh <span id="hz2v">3/s</span></div>
+    <input type="range" id="hz2" min="1" max="10" value="3">
+    <div class="row" style="margin-top:8px">
+      <select id="power"><option value="">— god power —</option></select>
+      <button id="b-cast">Arm cast</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <select id="species"><option value="">— creature —</option></select>
+      <button id="b-place">Arm place</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>World</h2>
+    <div id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Wars <span class="tiny" id="warcount"></span></h2>
+    <table id="wars"><tbody></tbody></table>
+  </section>
+
+  <section>
+    <h2>Civilizations <span class="tiny" id="kgcount"></span></h2>
+    <table id="kingdoms"><tbody></tbody></table>
+  </section>
+
+  <section>
+    <h2>Villages</h2>
+    <table id="villages"><tbody></tbody></table>
+  </section>
+
+  <section>
+    <h2>Chronicle</h2>
+    <ul class="news" id="news"></ul>
+  </section>
+</aside>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- geometry
+const SQ3 = Math.sqrt(3);
+const OWN = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const ownerVal = (ch) => { const i = OWN.indexOf(ch); return i < 0 ? 0 : i + 1; };
+const HEX = 7;                 // hex size in world-layer pixels
+const PAD = HEX;               // keeps edge hexes from clipping
+
+const centerX = (col, row) => PAD + SQ3 * HEX * (col + 0.5 * (row & 1) + 0.5);
+const centerY = (row) => PAD + HEX * (1 + 1.5 * row);
+const layerW = (W) => Math.ceil(PAD * 2 + SQ3 * HEX * (W + 0.5));
+const layerH = (H) => Math.ceil(PAD * 2 + HEX * (1.5 * (H - 1) + 2));
+
+function hexPath(ctx, cx, cy, s) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 180 * (60 * i + 30);
+    const x = cx + s * Math.cos(a), y = cy - s * Math.sin(a);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+}
+
+// ---------------------------------------------------------------- state
+let TER = null, TERR = null, ST = null;
+let terRev = -1, terrRev = -1;
+let cam = { x: 0, y: 0, z: 1 };
+let aim = null;                 // {kind:'power'|'spawn', idx, label}
+let hover = null;               // {col,row}
+let follow = false;
+let refreshHz = 3;
+let alive = false;
+let layerT = document.createElement("canvas");
+let layerO = document.createElement("canvas");
+let kingdomById = new Map();
+let villagePop = [];            // owned-tile counts per village, for tooltips
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("map"), ctx = canvas.getContext("2d");
+
+function fitScale() {
+  if (!TER) return 1;
+  return Math.min(canvas.clientWidth / layerW(TER.w), canvas.clientHeight / layerH(TER.h)) * 0.98;
+}
+function fit() {
+  if (!TER) return;
+  cam.z = fitScale();
+  cam.x = (canvas.clientWidth - layerW(TER.w) * cam.z) / 2;
+  cam.y = (canvas.clientHeight - layerH(TER.h) * cam.z) / 2;
+}
+function centerOn(col, row) {
+  cam.x = canvas.clientWidth / 2 - centerX(col, row) * cam.z;
+  cam.y = canvas.clientHeight / 2 - centerY(row) * cam.z;
+}
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.floor(canvas.clientWidth * dpr);
+  canvas.height = Math.floor(canvas.clientHeight * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+// ---------------------------------------------------------------- colour
+function b36(ch) { return parseInt(ch, 36) || 0; }
+function rgb(c) { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; }
+function shade(color, t) {          // t: 0..1 elevation, 1 = highest
+  const [r, g, b] = rgb(color);
+  const k = 0.55 + 0.75 * t;
+  return `rgb(${Math.min(255, r * k) | 0},${Math.min(255, g * k) | 0},${Math.min(255, b * k) | 0})`;
+}
+function rgba(color, a) {
+  const [r, g, b] = rgb(color);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// ---------------------------------------------------------------- layers
+function renderTerrain() {
+  const W = TER.w, H = TER.h;
+  layerT.width = layerW(W); layerT.height = layerH(H);
+  const c = layerT.getContext("2d");
+  c.clearRect(0, 0, layerT.width, layerT.height);
+  for (let row = 0; row < H; row++) {
+    const cy = centerY(row);
+    for (let col = 0; col < W; col++) {
+      const i = row * W + col;
+      const biome = b36(TER.biome[i]);
+      const elev = b36(TER.elev[i]) / 35;
+      c.fillStyle = shade(TER.palette[biome], elev);
+      hexPath(c, centerX(col, row), cy, HEX + 0.35);
+      c.fill();
+    }
+  }
+}
+
+function renderTerritory() {
+  if (!TER) return;
+  const W = TER.w, H = TER.h, owner = TERR.owner;
+  layerO.width = layerW(W); layerO.height = layerH(H);
+  const c = layerO.getContext("2d");
+  c.clearRect(0, 0, layerO.width, layerO.height);
+  const colourOf = (k) => {
+    const kd = kingdomById.get(k - 1);
+    if (kd) return kd[2];
+    const base = (ST && ST.faction_base) || 0;
+    const list = (ST && ST.factions) || [];
+    const f = list[k - 1 - base];
+    return f ? f[1] : "#7f8ea3";
+  };
+  // fills first, so borders sit on top of every claim
+  for (let row = 0; row < H; row++) {
+    const cy = centerY(row);
+    for (let col = 0; col < W; col++) {
+      const k = ownerVal(owner[row * W + col]);
+      if (k <= 0) continue;
+      c.fillStyle = rgba(colourOf(k), 0.40);
+      hexPath(c, centerX(col, row), cy, HEX + 0.3);
+      c.fill();
+    }
+  }
+  for (let row = 0; row < H; row++) {
+    const cy = centerY(row);
+    for (let col = 0; col < W; col++) {
+      const k = ownerVal(owner[row * W + col]);
+      if (k <= 0) continue;
+      const near = [[col + 1, row], [col - 1, row], [col, row - 1], [col, row + 1],
+                    [col + 1, row + 1], [col - 1, row + 1], [col + 1, row - 1], [col - 1, row - 1]];
+      let border = false;
+      for (const [nc, nr] of near) {
+        if (nc < 0 || nr < 0 || nc >= W || nr >= H) continue;
+        if (ownerVal(owner[nr * W + nc]) !== k) { border = true; break; }
+      }
+      if (!border) continue;
+      c.strokeStyle = rgba(colourOf(k), 0.95);
+      c.lineWidth = 1.1;
+      hexPath(c, centerX(col, row), cy, HEX - 0.2);
+      c.stroke();
+    }
+  }
+}
+
+// ---------------------------------------------------------------- drawing
+function draw() {
+  const now = Date.now() / 1000;
+  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  if (!TER) return;
+  ctx.save();
+  ctx.translate(cam.x, cam.y);
+  ctx.scale(cam.z, cam.z);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(layerT, 0, 0);
+  if (layerO.width) ctx.drawImage(layerO, 0, 0);
+  drawFronts(now);
+  drawVillages(now);
+  drawUnits();
+  drawClashes(now);
+  if (hover) {
+    ctx.strokeStyle = aim ? "rgba(255,210,120,.95)" : "rgba(255,255,255,.5)";
+    ctx.lineWidth = 1.4 / cam.z;
+    hexPath(ctx, centerX(hover.col, hover.row), centerY(hover.row), HEX - 0.4);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawFronts(t) {
+  if (!ST || !ST.fronts.length) return;
+  const pulse = 0.35 + 0.45 * Math.abs(Math.sin(t * 2.2));
+  ctx.fillStyle = `rgba(255,96,64,${pulse})`;
+  for (const [col, row] of ST.fronts) {
+    const x = centerX(col, row), y = centerY(row);
+    ctx.beginPath();
+    ctx.moveTo(x, y - HEX * 0.55); ctx.lineTo(x + HEX * 0.55, y);
+    ctx.lineTo(x, y + HEX * 0.55); ctx.lineTo(x - HEX * 0.55, y);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+function drawClashes(t) {
+  if (!ST || !ST.clashes.length) return;
+  for (const [col, row] of ST.clashes) {
+    const x = centerX(col, row), y = centerY(row);
+    const phase = (t * 1.7) % 1;
+    ctx.strokeStyle = `rgba(255,220,120,${0.9 - phase * 0.9})`;
+    ctx.lineWidth = 1.4 / Math.max(cam.z, 0.4);
+    ctx.beginPath();
+    ctx.arc(x, y, HEX * (0.5 + phase * 1.4), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,120,80,.95)";
+    ctx.beginPath(); ctx.arc(x, y, HEX * 0.22, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawVillages(t) {
+  if (!ST) return;
+  const showNames = cam.z > 0.9;
+  for (const v of ST.villages) {
+    const [id, name, race, kingdom, col, row, pop, soldiers, walls, capital, siege, besiegedBy] = v;
+    const kd = kingdom >= 0 ? kingdomById.get(kingdom) : null;
+    const colour = kd ? kd[2] : "#c8d2e2";
+    const x = centerX(col, row), y = centerY(row);
+    const r = HEX * (0.42 + Math.min(0.5, Math.sqrt(pop) * 0.055));
+    if (siege > 0) {
+      const pulse = 0.45 + 0.5 * Math.abs(Math.sin(t * 2.6));
+      ctx.strokeStyle = `rgba(255,70,70,${pulse})`;
+      ctx.lineWidth = 1.6 / Math.max(cam.z, 0.4);
+      ctx.beginPath(); ctx.arc(x, y, r + HEX * 0.55, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(8,10,16,.85)";
+    ctx.beginPath(); ctx.arc(x, y, r + HEX * 0.28, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = colour;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = capital ? "#ffd479" : "rgba(255,255,255,.55)";
+    ctx.lineWidth = capital ? 1.5 : 0.8;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    if (capital) {
+      ctx.fillStyle = "#ffd479";
+      ctx.beginPath();
+      ctx.moveTo(x - HEX * 0.4, y - r - HEX * 0.35);
+      ctx.lineTo(x + HEX * 0.4, y - r - HEX * 0.35);
+      ctx.lineTo(x, y - r - HEX * 0.95);
+      ctx.closePath(); ctx.fill();
+    }
+    if (showNames) {
+      ctx.font = `${(HEX * 1.5).toFixed(1)}px ui-monospace,monospace`;
+      ctx.textAlign = "center";
+      ctx.fillStyle = "rgba(6,8,12,.8)";
+      ctx.fillText(name, x + 0.6, y - r - HEX * 0.6 + 0.6);
+      ctx.fillStyle = "#e9eefb";
+      ctx.fillText(name, x, y - r - HEX * 0.6);
+    }
+  }
+}
+
+function drawUnits() {
+  if (!ST) return;
+  const monsterColour = "#ff4d4d";
+  for (const u of ST.units) {
+    const [col, row, race, kind, hp, kingdom, name] = u;
+    const kd = kingdom >= 0 ? kingdomById.get(kingdom) : null;
+    let colour = kd ? kd[2] : (ST.race_colors[race] || "#dbe4f5");
+    if (kind === 5) colour = monsterColour;
+    else if (kind === 4) colour = "#c9b98a";
+    const x = centerX(col, row), y = centerY(row);
+    const r = kind === 2 ? HEX * 0.42 : kind === 1 ? HEX * 0.34 : kind === 5 ? HEX * 0.38 : HEX * 0.28;
+    if (kind === 5) {  // monsters get a warning halo
+      ctx.fillStyle = "rgba(255,60,60,.22)";
+      ctx.beginPath(); ctx.arc(x, y, r * 2.1, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = colour;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    if (kind === 3 || kind === 2) {           // soldiers and kings wear a ring
+      ctx.strokeStyle = kind === 2 ? "#ffd479" : "rgba(255,255,255,.75)";
+      ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (hp < 60 && kind !== 4) {              // wounded: a red top edge
+      ctx.strokeStyle = "rgba(255,80,80,.95)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(x, y, r + 0.6, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+    }
+  }
+}
+
+// ---------------------------------------------------------------- panels
+function esc(s) { const d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+
+function updatePanels() {
+  if (!ST) return;
+  const age = ST.age;
+  $("clock").textContent = `year ${ST.year} · tick ${ST.tick} · ${ST.tps.toFixed(0)} tps` + (ST.paused ? " · paused" : "");
+  $("agename").textContent = age[0];
+  $("agefill").style.width = `${Math.min(100, 100 * age[1] / Math.max(1, age[2]))}%`;
+  $("hash").textContent = ST.hash;
+  $("pausebadge").style.display = ST.paused ? "block" : "none";
+  $("tpsv").textContent = `${ST.tps.toFixed(0)} ticks/s`;
+
+  const pop = ST.races.reduce((a, r) => a + r[1], 0);
+  const warring = new Set();
+  ST.wars.forEach(([a, b]) => { warring.add(a); warring.add(b); });
+  const rows = [
+    ["population", pop], ["races", ST.races.filter(r => r[1] > 0).length],
+    ["kingdoms", ST.kingdoms.length], ["villages", ST.villages.length],
+    ["wars now", ST.wars.length], ["kingdoms at war", warring.size],
+    ["kingdoms founded", ST.stats.kingdoms], ["kingdoms fallen", ST.stats.fallen],
+    ["wars declared", ST.stats.wars], ["cities captured", ST.stats.captures],
+    ["battles (kills)", ST.stats.kills], ["villages founded", ST.stats.villages],
+    ["buildings", ST.stats.buildings], ["disasters", ST.stats.disasters],
+    ["powers cast", ST.stats.powers], ["ages lived", ST.stats.ages],
+  ];
+  $("stats").innerHTML = rows.map(([k, v]) => `<div><span class="tiny">${k}</span><span>${v}</span></div>`).join("");
+
+  const krow = ST.kingdoms.slice().sort((a, b) => b[4] - a[4]).map(k => {
+    const [id, name, colour, race, pop2, cities, wars, king, kingName, culture, allies] = k;
+    return `<tr class="k" data-k="${id}"><td><span class="sw" style="background:${colour}"></span>${esc(name)}</td>` +
+      `<td class="tiny">${esc(race)}</td><td class="num">${pop2}</td><td class="num">${cities}</td>` +
+      `<td class="num">${wars ? `<span style="color:#ef5d5d">${wars}</span>` : 0}</td>` +
+      `<td class="tiny" title="${esc(culture)}">${esc(kingName || "—")}</td></tr>`;
+  }).join("");
+  $("kingdoms").querySelector("tbody").innerHTML =
+    `<tr><th>kingdom</th><th>race</th><th>pop</th><th>cities</th><th>wars</th><th>king</th></tr>` + krow;
+  $("kgcount").textContent = `${ST.kingdoms.length}`;
+
+  $("wars").querySelector("tbody").innerHTML = ST.wars.length
+    ? ST.wars.map(([a, b, year]) => {
+        const A = kingdomById.get(a), B = kingdomById.get(b);
+        if (!A || !B) return "";
+        return `<tr class="k" data-k="${a}"><td><span class="sw" style="background:${A[2]}"></span>${esc(A[1])}</td>` +
+          `<td class="tiny">vs</td><td><span class="sw" style="background:${B[2]}"></span>${esc(B[1])}</td>` +
+          `<td class="num tiny">${Math.max(0, ST.year - year)}y</td></tr>`;
+      }).join("")
+    : `<tr><td class="tiny">peace — for now</td></tr>`;
+  $("warcount").textContent = ST.wars.length ? `${ST.wars.length} active` : "";
+
+  $("villages").querySelector("tbody").innerHTML =
+    `<tr><th>village</th><th>kingdom</th><th>pop</th><th></th></tr>` +
+    ST.villages.slice().sort((a, b) => b[6] - a[6]).slice(0, 12).map(v => {
+      const kd = v[3] >= 0 ? kingdomById.get(v[3]) : null;
+      const flags = (v[9] ? "★" : "") + (v[10] > 0 ? ` <span style="color:#ef5d5d">siege ${v[10]}%</span>` : "");
+      return `<tr class="k" data-v="${v[0]}"><td>${esc(v[1])}</td>` +
+        `<td class="tiny">${kd ? `<span class="sw" style="background:${kd[2]}"></span>${esc(kd[1])}` : "—"}</td>` +
+        `<td class="num">${v[6]}</td><td class="tiny">${flags}</td></tr>`;
+    }).join("");
+
+  $("news").innerHTML = ST.news.map(([year, kind, text]) =>
+    `<li><b>y${year}</b> <span class="k-${esc(kind)}">[${esc(kind)}]</span> ${esc(text)}</li>`).join("");
+}
+
+function buildSelects() {
+  const byCat = new Map();
+  ST.powers.forEach(([name, cat], i) => {
+    if (!byCat.has(cat)) byCat.set(cat, []);
+    byCat.get(cat).push([name, i]);
+  });
+  let html = `<option value="">— god power —</option>`;
+  for (const [cat, list] of byCat) {
+    html += `<optgroup label="${esc(cat)}">` + list.map(([name, i]) => `<option value="${i}">${esc(name)}</option>`).join("") + `</optgroup>`;
+  }
+  $("power").innerHTML = html;
+  $("species").innerHTML = `<option value="">— creature —</option>` +
+    ST.species.map(([name, cat], i) => `<option value="${i}">${esc(name)} (${esc(cat)})</option>`).join("");
+}
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+function setLive(on) {
+  alive = on;
+  $("live").className = "dot" + (on ? "" : " off");
+  if (!on) $("clock").textContent = "reconnecting…";
+}
+
+// ---------------------------------------------------------------- fetch loop
+async function jget(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  return r.json();
+}
+
+async function pollState() {
+  ST = await jget("state");
+  kingdomById = new Map(ST.kingdoms.map(k => [k[0], k]));
+  if (terRev !== ST.terrain_rev) {
+    TER = await jget("terrain");
+    terRev = ST.terrain_rev;
+    renderTerrain();
+    if (cam.z === 1 && terRev === 1) fit();
+  }
+  if (terrRev !== ST.territory_rev) {
+    TERR = await jget("territory");
+    terrRev = ST.territory_rev;
+    renderTerritory();
+  }
+  updatePanels();
+  if (follow && ST.kingdoms.length) {
+    const big = ST.kingdoms.slice().sort((a, b) => b[4] - a[4])[0];
+    const cap = ST.villages.find(v => v[0] === big[7]) || ST.villages.find(v => v[3] === big[0]);
+    if (cap) centerOn(cap[4], cap[5]);
+  }
+}
+
+async function loop() {
+  try { await pollState(); setLive(true); }
+  catch (e) { setLive(false); }
+  setTimeout(loop, Math.max(80, 1000 / refreshHz));
+}
+
+// ---------------------------------------------------------------- commands
+async function cmd(query) {
+  try {
+    const r = await jget(`cmd?${query}`);
+    if (r.msg) toast(r.msg);
+    await pollState();
+  } catch (e) { toast("command failed: " + e.message); }
+}
+
+function setAim(kind) {
+  const sel = kind === "power" ? $("power") : $("species");
+  if (!sel.value) { aim = null; }
+  else {
+    aim = { kind, idx: +sel.value, label: sel.options[sel.selectedIndex].text };
+  }
+  $("b-cast").classList.toggle("on", !!aim && aim.kind === "power");
+  $("b-place").classList.toggle("on", !!aim && aim.kind === "spawn");
+  const bar = $("aimbar");
+  if (aim) {
+    bar.style.display = "block";
+    bar.textContent = `${aim.kind === "power" ? "casting" : "placing"} ${aim.label} — click the map (Esc to cancel)`;
+    canvas.style.cursor = "crosshair";
+  } else {
+    bar.style.display = "none";
+    canvas.style.cursor = "default";
+  }
+}
+
+// ---------------------------------------------------------------- input
+let drag = null;
+canvas.addEventListener("mousedown", (e) => { drag = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y, moved: false }; });
+window.addEventListener("mousemove", (e) => {
+  if (drag) {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    cam.x = drag.cx + dx; cam.y = drag.cy + dy;
+    return;
+  }
+  const tile = tileAt(e.clientX, e.clientY);
+  if (!tile) { hover = null; $("tip").classList.remove("show"); return; }
+  hover = tile;
+  showTip(e, tile.col, tile.row);
+});
+window.addEventListener("mouseup", async (e) => {
+  const wasDrag = drag && drag.moved;
+  drag = null;
+  if (wasDrag) return;
+  const tile = tileAt(e.clientX, e.clientY);
+  if (!tile) return;
+  if (aim) {
+    const key = aim.kind === "power" ? "power" : "spawn";
+    const kind = aim.kind;
+    await cmd(`${key}=${aim.idx}&col=${tile.col}&row=${tile.row}`);
+    if (!e.shiftKey) {   // shift keeps the power armed for a second cast
+      $("power").value = "";
+      $("species").value = "";
+      setAim(kind);
+    }
+  } else {
+    const t = tileInfo(tile.col, tile.row);
+    if (t.village) centerOn(tile.col, tile.row);
+    toast(t.text);
+  }
+});
+
+function tileAt(clientX, clientY) {
+  if (!TER) return null;
+  const rect = canvas.getBoundingClientRect();
+  const wx = (clientX - rect.left - cam.x) / cam.z;
+  const wy = (clientY - rect.top - cam.y) / cam.z;
+  const row = Math.round((wy - PAD - HEX) / (1.5 * HEX));
+  const col = Math.round((wx - PAD - SQ3 * HEX * (0.5 * (row & 1) + 0.5)) / (SQ3 * HEX));
+  if (col < 0 || row < 0 || col >= TER.w || row >= TER.h) return null;
+  return { col, row };
+}
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const k = Math.exp(-e.deltaY * 0.0015);
+  const z2 = Math.min(8, Math.max(fitScale() * 0.6, cam.z * k));
+  cam.x = mx - (mx - cam.x) * (z2 / cam.z);
+  cam.y = my - (my - cam.y) * (z2 / cam.z);
+  cam.z = z2;
+}, { passive: false });
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { $("power").value = ""; $("species").value = ""; setAim("power"); }
+  if (e.key === " ") { e.preventDefault(); cmd(ST && ST.paused ? "resume=1" : "pause=1"); }
+  if (e.key === "s") cmd("step=10");
+  if (e.key === "f") { fit(); }
+});
+
+function tileInfo(col, row) {
+  const i = row * TER.w + col;
+  const biome = TER.names[b36(TER.biome[i])];
+  const elev = Math.round(b36(TER.elev[i]) / 35 * 1200 - 300);
+  const k = TERR ? ownerVal(TERR.owner[i]) : 0;
+  const kd = k > 0 ? kingdomById.get(k - 1) : null;
+  const base = (ST && ST.faction_base) || 0;
+  const faction = k > base ? (ST.factions[k - 1 - base] || null) : null;
+  const near = ST.villages.filter(v => Math.abs(v[4] - col) <= 2 && Math.abs(v[5] - row) <= 2);
+  const units = ST.units.filter(u => u[0] === col && u[1] === row);
+  let text = `${biome} · ${elev >= 0 ? "+" : ""}${elev}m`;
+  if (kd) text += ` · ${kd[1]}`;
+  else if (faction) text += ` · ${faction[0]} (no kingdom yet)`;
+  if (near.length) text += ` · ${near.map(v => v[1]).join(", ")}`;
+  if (units.length) {
+    const named = units.filter(u => u[6]).map(u => u[6]);
+    text += ` · ${units.length} unit${units.length > 1 ? "s" : ""}` + (named.length ? ` (${named.join(", ")})` : "");
+    const kinds = new Set(units.map(u => ST.kinds[u[3]]));
+    text += ` [${[...kinds].join(", ")}]`;
+  }
+  return { text, village: near[0] || null };
+}
+
+function showTip(e, col, row) {
+  const tip = $("tip");
+  tip.innerHTML = esc(tileInfo(col, row).text);
+  tip.classList.add("show");
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.min(e.clientX - rect.left + 14, canvas.clientWidth - 290);
+  const y = Math.min(e.clientY - rect.top + 14, canvas.clientHeight - 80);
+  tip.style.left = `${x}px`; tip.style.top = `${y}px`;
+}
+
+// clicks in the side tables: centre the map on what was clicked
+$("kingdoms").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-k]"); if (!tr || !ST) return;
+  const k = ST.kingdoms.find(x => x[0] === +tr.dataset.k); if (!k) return;
+  const cap = ST.villages.find(v => v[0] === k[7]) || ST.villages.find(v => v[3] === k[0]);
+  if (cap) { follow = false; $("b-follow").classList.remove("on"); centerOn(cap[4], cap[5]); toast(`${k[1]} — capital at ${cap[4]},${cap[5]}`); }
+});
+$("villages").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-v]"); if (!tr || !ST) return;
+  const v = ST.villages.find(x => x[0] === +tr.dataset.v);
+  if (v) { centerOn(v[4], v[5]); toast(`${v[1]} — pop ${v[6]}`); }
+});
+
+// controls
+$("b-pause").onclick = () => cmd(ST && ST.paused ? "resume=1" : "pause=1");
+$("b-step").onclick = () => cmd("step=10");
+$("b-run").onclick = () => cmd("step=100");
+$("b-fit").onclick = () => fit();
+$("b-follow").onclick = (e) => { follow = !follow; e.target.classList.toggle("on", follow); };
+$("tps").oninput = (e) => { $("tpsv").textContent = `${e.target.value} ticks/s`; };
+$("tps").onchange = (e) => cmd(`tps=${e.target.value}`);
+$("hz2").oninput = (e) => { refreshHz = +e.target.value; $("hz2v").textContent = `${refreshHz}/s`; };
+$("b-cast").onclick = () => setAim("power");
+$("b-place").onclick = () => setAim("spawn");
+$("power").onchange = () => setAim("power");
+$("species").onchange = () => setAim("spawn");
+
+// ---------------------------------------------------------------- boot
+window.addEventListener("resize", () => { resize(); });
+resize();
+(function boot() {
+  // one bootstrap request fills the selects, then the loop takes over
+  jget("state").then((s) => {
+    ST = s;
+    buildSelects();
+    $("who").textContent = `${s.w}×${s.h}`;
+    return pollState();
+  }).then(() => { fit(); setLive(true); loop(); })
+    .catch(() => { setLive(false); setTimeout(boot, 1000); });
+})();
+</script>
+</body>
+</html>

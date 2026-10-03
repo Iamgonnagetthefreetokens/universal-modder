@@ -20,6 +20,10 @@ cargo test  --offline
 ./target/release/worldforge step world.wfz 500 --out world2.wfz
 ./target/release/worldforge powers                                # list all 49 god powers
 
+# watch it develop: civilizations, wars, sieges and the chronicle, live in a tab
+./target/release/worldforge watch --size large --seed 20241003 --civs 4 --monsters 6 --tps 20
+#   -> open http://localhost:25608/ ; `watch --wbox map.wbox` watches an imported save
+
 # bring a real WorldBox map with you (see ../worldbox-in-minecraft/README.md):
 ./target/release/worldforge wbox ~/mkarpenko/WorldBox/saves/save1/map.wbox --dump
 ./target/release/worldforge wbox map.wbox --civs 4 --png map.png --out my-world.wfz
@@ -47,6 +51,7 @@ cargo test  --offline
 | `save` | Hand-written binary codec, versioned, round-trips exactly |
 | `render` | ASCII/ANSI terminal map, xterm-256 colour, an RGB frame renderer and a text panel |
 | `png` | In-tree PNG encoder (CRC-32 + stored-deflate zlib), byte-for-byte reproducible |
+| `live` | `worldforge watch`: a hand-written HTTP server and a canvas page — hex map with elevation shading, kingdom territory, villages, sieges, units, war fronts and clashes, the kingdom and war tables, and the chronicle, all updating as the world runs |
 | `wbox` | Reads a WorldBox `.wbox` map: the biome palette, the longest tile run, layout scoring for the shape, a header path, `--dump` inspection, terrain import and a PNG of what it read |
 | `bridge` | The Minecraft mapping: biome → block, tile → column, building → structure, unit → mob, kingdom → concrete, plus the JSON messages |
 | `serve` | `worldforge serve`: runs the world and publishes it on `127.0.0.1`, takes commands back |
@@ -123,8 +128,13 @@ PNG writer's output is byte-stable.
 * The Minecraft bridge (`../worldbox-in-minecraft`) is built and tested as far as this sandbox allows —
   the Rust client, the wire protocol and the block mapping are verified end to end, but the Fabric mod
   itself has not been run in a real Minecraft client.
-* No GPU/UI of its own: the renderer writes ASCII and PNG. A playable UI would be the next project (`macroquad`
-  or `wgpu`), and the crate is deliberately dependency-free so that stays easy to bolt on.
+* No GPU/UI of its own beyond the live page: `render` writes ASCII and PNG, and `watch` draws the world
+  on a browser canvas (2-D, no WebGL). A window of its own would be the next project (`macroquad` or
+  `wgpu`); the crate is deliberately dependency-free so that stays easy to bolt on.
+* The live page polls, it does not push: one thread owns both the simulation and the socket, so requests
+  are answered between ticks and a slow client slows the *world* down rather than queueing frames. That
+  is the honest trade — no locks anywhere, no backpressure to write — and WebSockets would be the fix if
+  it ever mattered.
 * It was not playtested in WorldBox itself, because the game isn't installed in this sandbox — the
   oracles are the unit tests, the determinism hash and the rendered frames.
 * **The `.wbox` reader has never seen a real `.wbox`.** It is built on the biome colours the game draws

@@ -147,13 +147,49 @@ tracked 102 units and set 31,381 blocks — the save's coastline rendered as Min
 inferred, and the module docs say so; the colour pass needs no format knowledge but cannot recover
 villages or history either. `--dump` and `--width/--height` are the documented first-run workflow.
 
+## Watching it: `worldforge watch`
+
+Being able to *watch* a world develop — not read a hash, not step it by hand — was the last piece. New
+`live.rs` plus `live_page.html`: one thread owns both the simulation and a hand-written HTTP server on
+`std::net` (GET only, one request per connection, no frame-blocking headers, bound to `0.0.0.0` so a
+dev-preview proxy can embed the page). Requests are answered *between* ticks, so there are no locks at
+all and a slow client slows the world rather than queueing frames. That trade is documented where it
+would be needed.
+
+Three endpoints, split by how often they change: `/terrain` (biome index and quantised elevation as
+base36 strings, ~13 KB for 96x64), `/territory` (one faction digit per tile, ~6 KB) and `/state` (~5 KB:
+units, villages, kingdoms, wars, fronts, clashes, the last 16 chronicle events, the counters, and the
+static lookups the page needs). Each layer carries a revision number, so the page refetches the map only
+when it actually changed — the server knows by comparing the string it just rebuilt with the one it last
+sent.
+
+The map is a canvas: hexes shaded by elevation, kingdom territory with borders, village markers sized by
+population (crown for capitals, red pulse under siege), units (kings ringed, monsters haloed, wounded
+marked), pulsing diamonds on the front line where at-war realms meet and bursts where their units stand
+next to each other. Click a kingdom or village row to fly to it; arm any of the 49 powers from the
+dropdown and click the map to cast it; pause, step and the speed slider are the same commands
+`/cmd?pause=1&...` the CLI would run.
+
+Lesson worth keeping: the territory layer had to be about **factions, not kingdoms**. A village that has
+not crowned a king yet still owns land, and painting its claim as "nobody's" made a young world look
+empty. Kingdomless villages now get a stand-in colour (their race's), the client resolves them from the
+`factions` list in the state frame, and the alphabet grew from base36 to 62 characters (`0-9a-zA-Z`) so
+no world runs out of distinct claims.
+
+Tests: 8 unit (frame validity checked with the crate's own JSON reader, layer lengths, faction claims
+resolving, fronts appearing only where at-war neighbours meet — with a war *built* through
+`found_kingdom`/`declare_war` instead of waiting for diplomacy, command round-trips, revision
+discipline) and 2 socket tests that open real connections: the page, the frames, a 404, the world
+advancing between requests, and pausing actually stopping it.
+
 ## Numbers
 
 * ~7,000 lines of Rust (about 40% of that tests), zero dependencies, `cargo build --offline` clean.
 * 145 tests: unit tests per module + `tests/e2e.rs` running the real binary.
 * 49 god powers, 24 biomes, 36 species, 13 ages, 13 building kinds.
-* 185 tests: 166 lib + 10 e2e + 8 bridge (`tests/mc.rs`, real sockets) + 1 doc. The save reader brings
-  that to 197: 178 lib (12 of them `wbox`) + 10 + 8 + 1; clippy clean, still zero dependencies.
+* Tests: 185 → 197 for the save reader (`wbox`) → **206** with the live view: 185 lib (12 `wbox`, 8
+  live) + 10 e2e + 2 live sockets (`tests/live.rs`) + 8 bridge sockets (`tests/mc.rs`) + 1 doc. Clippy
+  clean, still zero dependencies, `cargo build --offline --release` fine.
 * The bridge: 116-name palette, ~9k blocks placed for a 96×64 map, 60 simulated ticks/s over one socket.
 * 100 years of a 96×64 world (9 villages, 3 kingdoms, 121 people alive) in ~2 s release, ~25 s debug;
   the run's hash is `0xd5c223e4a58f50c1`.

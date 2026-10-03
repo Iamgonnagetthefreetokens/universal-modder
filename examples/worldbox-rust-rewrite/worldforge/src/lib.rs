@@ -29,6 +29,7 @@ pub mod bridge;
 pub mod disaster;
 pub mod hex;
 pub mod json;
+pub mod live;
 pub mod kingdom;
 pub mod mcworld;
 pub mod names;

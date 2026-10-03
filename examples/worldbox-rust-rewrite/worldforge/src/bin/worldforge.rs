@@ -47,6 +47,10 @@ commands
         [--height H] [--flat] [--dump]
         read a WorldBox map and rebuild its terrain here; --dump prints what the
         reader found inside the file without importing anything
+  watch [--port N] [--tps N] [--host ADDR] [--size S] [--seed N] [--civs N]
+        [--animals N] [--monsters N] [--ticks N] [--wbox FILE [--width W --height H]]
+        run the world and serve a live page: the map, the civilizations, the wars
+        and the chronicle, updating as they happen (open the printed address)
   powers
        list every god power by category
   info <save>
@@ -87,6 +91,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "script" => script_cmd(rest),
         "serve" => serve(args, rest),
         "wbox" => wbox_cmd(rest),
+        "watch" => watch_cmd(args, rest),
         "mcview" => mcview(rest),
         "powers" => powers(),
         "info" => info(rest),
@@ -393,6 +398,7 @@ fn serve(args: &[String], rest: &[String]) -> Result<(), String> {
         println!(
             "usage: worldforge serve [--port N] [--tps N] [--seed N] [--size tiny|small|medium|large|huge]\n\
              \x20                      [--type T] [--land 5..95] [--civs N] [--animals N] [--monsters N]\n\
+             \x20                      [--ticks N]   (pre-run the world before you look at it)\n\
              \x20                      [--wbox FILE.wbox [--width W --height H]]\n\
              \n\
              Runs the simulation and publishes it for a Minecraft client on 127.0.0.1.\n\
@@ -400,36 +406,12 @@ fn serve(args: &[String], rest: &[String]) -> Result<(), String> {
         );
         return Ok(());
     }
-    // A WorldBox map, if given, replaces world generation entirely: the save
-    // *is* the terrain; the flags only decide who lives on it.
-    let world = if let Some(path) = flag(rest, "--wbox") {
-        let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
-        let size = match (flag(rest, "--width"), flag(rest, "--height")) {
-            (Some(w), Some(h)) => Some((
-                w.parse::<u16>().map_err(|_| "--width must be a number".to_string())?,
-                h.parse::<u16>().map_err(|_| "--height must be a number".to_string())?,
-            )),
-            _ => None,
-        };
-        let map = match size {
-            Some((w, h)) => worldforge::wbox::parse_with_size(&bytes, w, h),
-            None => worldforge::wbox::parse(&bytes),
-        }
-        .map_err(|e| format!("{path}: {e}"))?;
-        let options = worldforge::wbox::ImportOptions {
-            civs: flag(rest, "--civs").and_then(|s| s.parse().ok()).unwrap_or(4),
-            animals: flag(rest, "--animals").and_then(|s| s.parse().ok()).unwrap_or(30),
-            monsters: flag(rest, "--monsters").and_then(|s| s.parse().ok()).unwrap_or(0),
-            terrain_height: !has_flag(rest, "--flat"),
-        };
-        println!("{path}: {}", map.note);
-        println!("{}", map.summary());
-        worldforge::wbox::to_world(&map, options)
-    } else {
-        let mut world = make_world(rest)?;
-        seed_world(&mut world, rest)?;
-        world
-    };
+    let mut world = world_from_args(rest)?;
+    if let Some(n) = flag(rest, "--ticks").and_then(|v| v.parse::<u64>().ok()) {
+        let n = n.min(200_000);
+        world.step_n(n);
+        println!("watch: pre-ran {n} ticks → year {}", world.year);
+    }
     let port = flag(rest, "--port")
         .map(|s| s.parse::<u16>())
         .transpose()
@@ -457,6 +439,80 @@ fn serve(args: &[String], rest: &[String]) -> Result<(), String> {
     }
     handle.join().ok();
     Ok(())
+}
+
+/// `worldforge watch`: the world, live, in a browser tab.
+fn watch_cmd(args: &[String], rest: &[String]) -> Result<(), String> {
+    if has_flag(rest, "--help") || has_flag(rest, "-h") {
+        println!(
+            "usage: worldforge watch [--host 0.0.0.0] [--port N] [--tps N]\n\
+             \x20                      [--seed N] [--size tiny|small|medium|large|huge]\n\
+             \x20                      [--type T] [--land 5..95] [--civs N] [--animals N] [--monsters N]\n\
+             \x20                      [--ticks N]   (pre-run the world before you look at it)\n\
+             \x20                      [--wbox FILE.wbox [--width W --height H]]\n\
+             \n\
+             Serves a live page: the hex map, territory, units, wars, sieges and\n\
+             the chronicle, all updating as the simulation runs. It binds every\n\
+             interface on purpose, so a browser that reaches this machine through\n\
+             a preview proxy can open it. Press Ctrl-C to stop."
+        );
+        return Ok(());
+    }
+    let mut world = world_from_args(rest)?;
+    if let Some(n) = flag(rest, "--ticks").and_then(|v| v.parse::<u64>().ok()) {
+        let n = n.min(200_000);
+        world.step_n(n);
+        println!("watch: pre-ran {n} ticks → year {}", world.year);
+    }
+    let port = flag(rest, "--port")
+        .map(|s| s.parse::<u16>())
+        .transpose()
+        .map_err(|_| "--port must be a number".to_string())?
+        .unwrap_or(worldforge::live::DEFAULT_PORT);
+    let tps = flag(rest, "--tps")
+        .map(|s| s.parse::<f32>())
+        .transpose()
+        .map_err(|_| "--tps must be a number".to_string())?
+        .unwrap_or(20.0)
+        .clamp(0.5, 120.0);
+    let host = flag(rest, "--host").unwrap_or_else(|| "0.0.0.0".to_string());
+    let _ = args;
+    worldforge::live::watch(
+        world,
+        &worldforge::live::WatchOptions { host, port, tps },
+    )
+}
+
+/// A world for the bridge commands: an imported `.wbox` if one was given (the save
+/// *is* the terrain, the flags only decide who lives on it), otherwise generated.
+fn world_from_args(rest: &[String]) -> Result<World, String> {
+    if let Some(path) = flag(rest, "--wbox") {
+        let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+        let size = match (flag(rest, "--width"), flag(rest, "--height")) {
+            (Some(w), Some(h)) => Some((
+                w.parse::<u16>().map_err(|_| "--width must be a number".to_string())?,
+                h.parse::<u16>().map_err(|_| "--height must be a number".to_string())?,
+            )),
+            _ => None,
+        };
+        let map = match size {
+            Some((w, h)) => worldforge::wbox::parse_with_size(&bytes, w, h),
+            None => worldforge::wbox::parse(&bytes),
+        }
+        .map_err(|e| format!("{path}: {e}"))?;
+        let options = worldforge::wbox::ImportOptions {
+            civs: flag(rest, "--civs").and_then(|s| s.parse().ok()).unwrap_or(4),
+            animals: flag(rest, "--animals").and_then(|s| s.parse().ok()).unwrap_or(30),
+            monsters: flag(rest, "--monsters").and_then(|s| s.parse().ok()).unwrap_or(0),
+            terrain_height: !has_flag(rest, "--flat"),
+        };
+        println!("{path}: {}", map.note);
+        println!("{}", map.summary());
+        return Ok(worldforge::wbox::to_world(&map, options));
+    }
+    let mut world = make_world(rest)?;
+    seed_world(&mut world, rest)?;
+    Ok(world)
 }
 
 /// `worldforge mcview`: connect to a bridge and draw what it is sending.

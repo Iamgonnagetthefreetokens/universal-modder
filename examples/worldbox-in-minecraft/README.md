@@ -219,6 +219,11 @@ Then exactly as above: Fabric client with the mod, superflat **void** world, and
 world appears on the canvas (start the sim before the client; `/wf status` confirms).
 `mcview --connect 127.0.0.1:25607` shows the same thing without Minecraft.
 
+If you would rather *watch* the world develop than walk around inside it, the same
+simulation has a map view in a browser tab: `worldforge watch --wbox .../map.wbox`
+(see the sibling README) — civilizations growing, wars, sieges and the chronicle,
+hex by hex, with the same world a Minecraft client would see.
+
 `--dump` first, always. The importer reads the terrain by matching tile colours
 against the biome palette, so it works on a format it has never seen — but a flat
 run of tiles carries no row markers, so it can fold into more than one rectangle and
