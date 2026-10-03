@@ -1,0 +1,46 @@
+mcview: connected to 127.0.0.1:25631
+mcview: protocol 1, (96, 64) world `continents` seed 20241003, 116 palette names
+mcview: year   5 tick    103 | pop  29 | villages  4 | kingdoms  0 | animals 39 monsters 0 | Age of Hope | 0xbaf9f27e7c25173c
+           village Narcliff     Human  pop   9 at tile  73,13  kingdom -1
+           village Yensari      Elf    pop   7 at tile  79,45  kingdom -1
+           village Balhold      Dwarf  pop   6 at tile  64,44  kingdom -1
+           village Draktusk     Orc    pop   7 at tile  71,54  kingdom -1
+mcview: year  40 tick    802 | pop  71 | villages  6 | kingdoms  3 | animals 30 monsters 0 | Age of Hope | 0x45c104001fb96ac3
+           village Narcliff     Human  pop  12 at tile  73,13  kingdom -1
+           village Yensari      Elf    pop  12 at tile  79,45  kingdom 1
+           village Balhold      Dwarf  pop  14 at tile  64,44  kingdom 2
+           village Draktusk     Orc    pop  25 at tile  71,54  kingdom 0
+           village Brugbile     Orc    pop   5 at tile  64,51  kingdom 0
+           village Nashclaw     Orc    pop   3 at tile  61,48  kingdom 0
+           wrote /home/user/universal-modder/examples/worldbox-in-minecraft/artifacts/world-y040.png (1132x504)
+mcview: year  75 tick   1502 | pop 129 | villages 12 | kingdoms  3 | animals 29 monsters 0 | Age of Hope | 0x36f6d47dbdba0821
+           village Narcliff     Human  pop  12 at tile  73,13  kingdom -1
+           village Yensari      Elf    pop   9 at tile  79,45  kingdom 1
+           village Balhold      Dwarf  pop  16 at tile  64,44  kingdom 2
+           village Draktusk     Orc    pop  37 at tile  71,54  kingdom 0
+           village Brugbile     Orc    pop   6 at tile  64,51  kingdom 0
+           village Nashclaw     Orc    pop   6 at tile  61,48  kingdom 0
+           village Mormash      Orc    pop   6 at tile  67,49  kingdom 0
+           village Urzclaw      Orc    pop  13 at tile  76,49  kingdom 0
+           wrote /home/user/universal-modder/examples/worldbox-in-minecraft/artifacts/world-y075.png (1132x504)
+mcview: stopping after 1792 frames
+mcview: applied 2311 messages, 79319 blocks set, 5268 cleared, 210 units tracked, 2 pictures
+mcview: connected to 127.0.0.1:25631
+mcview: protocol 1, (96, 64) world `continents` seed 20241003, 116 palette names
+mcview: year  94 tick   1896 | pop 180 | villages 16 | kingdoms  3 | animals 29 monsters 0 | Age of Hope | 0x228c84c3b854c2df
+           village Narcliff     Human  pop  12 at tile  73,13  kingdom -1
+           village Yensari      Elf    pop  11 at tile  79,45  kingdom 1
+           village Balhold      Dwarf  pop  22 at tile  64,44  kingdom 2
+           village Draktusk     Orc    pop  46 at tile  71,54  kingdom 0
+           village Brugbile     Orc    pop   6 at tile  64,51  kingdom 0
+           village Nashclaw     Orc    pop   6 at tile  61,48  kingdom 0
+           village Mormash      Orc    pop   6 at tile  67,49  kingdom 0
+           village Urzclaw      Orc    pop  15 at tile  76,49  kingdom 0
+mcview: year  95 tick   1915 | pop 184 | villages 16 | kingdoms  3 | animals 29 monsters 0 | Age of Hope | 0xa4993e9774e391ab
+           wrote /home/user/universal-modder/examples/worldbox-in-minecraft/artifacts/zoom-y095-t001915.png (716x404)
+mcview: year  96 tick   1935 | pop 183 | villages 16 | kingdoms  3 | animals 29 monsters 0 | Age of Hope | 0x9f6414fcff01ca7c
+           wrote /home/user/universal-modder/examples/worldbox-in-minecraft/artifacts/zoom-y096-t001935.png (716x404)
+mcview: year  97 tick   1955 | pop 187 | villages 16 | kingdoms  3 | animals 29 monsters 0 | Age of Hope | 0x98ce590bc72526e6
+           wrote /home/user/universal-modder/examples/worldbox-in-minecraft/artifacts/zoom-y097-t001955.png (716x404)
+mcview: stopping after 71 frames
+mcview: applied 86 messages, 26884 blocks set, 148 cleared, 218 units tracked, 3 pictures

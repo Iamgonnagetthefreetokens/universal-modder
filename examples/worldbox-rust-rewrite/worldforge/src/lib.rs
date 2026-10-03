@@ -25,9 +25,12 @@
 //! are all in this crate, so it builds offline and behaves the same everywhere.
 
 pub mod ages;
+pub mod bridge;
 pub mod disaster;
 pub mod hex;
+pub mod json;
 pub mod kingdom;
+pub mod mcworld;
 pub mod names;
 pub mod path;
 pub mod png;
@@ -37,6 +40,7 @@ pub mod render;
 pub mod rng;
 pub mod save;
 pub mod script;
+pub mod serve;
 pub mod sim;
 pub mod terrain;
 pub mod units;

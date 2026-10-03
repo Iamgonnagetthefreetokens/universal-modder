@@ -42,6 +42,19 @@ is the standard way to build it.
 6. **Start small:** a cube from process A drawn in B at the right spot. Then positions every frame, then
    collision, and only then real content.
 
+### Worked example: a Rust simulation rendered in Minecraft
+Code: `examples/worldbox-in-minecraft` (the guest is a cleanroom Rust world sim,
+`examples/worldbox-rust-rewrite`; the host is Minecraft with a Fabric mod that builds the world as
+blocks and mobs). Every lesson: `knowledge/games/minecraft-java/worldbox-in-minecraft.md`.
+- The **guest owns the mapping** (biome → block, tile → column height, building → structure, unit → mob)
+  and ships it in the JSON protocol; the host mod only applies indices it is handed, so it stays small
+  and cannot disagree with the simulation.
+- The guest also ships its **own host-side client** (`worldforge mcview`) that speaks the same protocol
+  and renders isometrically, so the wire format and the mapping are testable with no game installed.
+  Do this whenever the host is expensive to run: build the protocol and a stand-in client first, and let
+  the real host be the last thing added.
+- Tile diffs, not full resends: 6,144 columns every tick is megabytes; the changed handful is nothing.
+
 Bridge-plugin template in public: chasm-bridge-fnv (thin xNVSE plugin, file-drop/HTTP transport,
 data-driven actions). The Terraria agent bridge in `examples/terraria-tmodloader/reference/` is the same
 idea.

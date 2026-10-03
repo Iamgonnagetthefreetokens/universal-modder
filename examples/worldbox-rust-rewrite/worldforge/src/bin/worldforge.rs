@@ -11,10 +11,12 @@
 
 use std::process::ExitCode;
 
+use worldforge::mcworld::{parse_message, BlockWorld, IsoOpts, Message};
 use worldforge::powers::{Power, PowerCategory};
 use worldforge::render::{color_map, render_ascii, render_panel, RenderOpts};
 use worldforge::save::{load_from_file, save_to_file};
 use worldforge::script;
+use worldforge::serve::Server;
 use worldforge::world::{World, TICKS_PER_YEAR};
 use worldforge::worldgen::{GenParams, WorldType};
 
@@ -36,6 +38,11 @@ commands
        print a saved world; --png writes an image
   script <file>
        run a worldforge script
+  serve [--port N] [--tps N] [--seed N] [--size S] [--type T] [--civs N]
+        run the simulation and publish it for Minecraft on 127.0.0.1
+  mcview --connect HOST:PORT [--png PREFIX] [--every N] [--scale N]
+        be the Minecraft side without Minecraft: build the block world and
+        write isometric PNGs of it (needs a `serve` to connect to)
   powers
        list every god power by category
   info <save>
@@ -74,6 +81,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "step" => step(rest),
         "show" => show(rest),
         "script" => script_cmd(rest),
+        "serve" => serve(args, rest),
+        "mcview" => mcview(rest),
         "powers" => powers(),
         "info" => info(rest),
         other => Err(format!("unknown command `{other}`")),
@@ -294,6 +303,234 @@ fn script_cmd(args: &[String]) -> Result<(), String> {
     print!("{}", session.output);
     if session.quit {
         eprintln!("(script stopped early)");
+    }
+    Ok(())
+}
+
+/// `worldforge serve`: publish the running world on the loopback bridge.
+fn serve(args: &[String], rest: &[String]) -> Result<(), String> {
+    if has_flag(rest, "--help") || has_flag(rest, "-h") {
+        println!(
+            "usage: worldforge serve [--port N] [--tps N] [--seed N] [--size tiny|small|medium|large|huge]\n\
+             \x20                      [--type T] [--land 5..95] [--civs N] [--animals N] [--monsters N]\n\
+             \n\
+             Runs the simulation and publishes it for a Minecraft client on 127.0.0.1.\n\
+             Gen options are the same as `worldforge demo`; see `worldforge --help`."
+        );
+        return Ok(());
+    }
+    let mut world = make_world(rest)?;
+    seed_world(&mut world, rest)?;
+    let port = flag(rest, "--port")
+        .map(|s| s.parse::<u16>())
+        .transpose()
+        .map_err(|_| "--port must be a number".to_string())?
+        .unwrap_or(worldforge::bridge::DEFAULT_PORT);
+    let tps = flag(rest, "--tps")
+        .map(|s| s.parse::<f32>())
+        .transpose()
+        .map_err(|_| "--tps must be a number".to_string())?
+        .unwrap_or(10.0)
+        .clamp(0.1, 60.0);
+    let _ = args;
+    let server = Server::bind_local(port, tps).map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let handle = server.start(world, stop.clone());
+    println!("worldforge: press Ctrl-C to stop");
+    loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if handle.is_finished() {
+            break;
+        }
+    }
+    handle.join().ok();
+    Ok(())
+}
+
+/// `worldforge mcview`: connect to a bridge and draw what it is sending.
+fn mcview(args: &[String]) -> Result<(), String> {
+    if has_flag(args, "--help") || has_flag(args, "-h") {
+        println!(
+            "usage: worldforge mcview --connect HOST:PORT [--png PREFIX] [--every N] [--scale N]\n\
+             \x20                      [--region col,row,w,h] [--timeout SECONDS]\n\
+             \n\
+             The Minecraft side without Minecraft: speaks the bridge protocol, builds the block\n\
+             world it describes and writes isometric PNGs of it."
+        );
+        return Ok(());
+    }
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::{Duration, Instant};
+
+    let connect = flag(args, "--connect").unwrap_or_else(|| format!("127.0.0.1:{}", worldforge::bridge::DEFAULT_PORT));
+    let prefix = flag(args, "--png");
+    let every = flag(args, "--every")
+        .map(|s| s.parse::<u64>())
+        .transpose()
+        .map_err(|_| "--every must be a number".to_string())?
+        .unwrap_or(100)
+        .max(1);
+    let scale = flag(args, "--scale")
+        .map(|s| s.parse::<i32>())
+        .transpose()
+        .map_err(|_| "--scale must be a number".to_string())?
+        .unwrap_or(6)
+        .clamp(2, 32);
+    let timeout = flag(args, "--timeout")
+        .map(|s| s.parse::<u64>())
+        .transpose()
+        .map_err(|_| "--timeout must be a number".to_string())?
+        .map(Duration::from_secs);
+    let region = match flag(args, "--region") {
+        Some(text) => {
+            let parts: Vec<i32> = text
+                .split(',')
+                .map(|p| p.trim().parse::<i32>().map_err(|_| "--region wants col,row,w,h".to_string()))
+                .collect::<Result<_, _>>()?;
+            if parts.len() != 4 {
+                return Err("--region wants col,row,w,h".into());
+            }
+            Some((parts[0], parts[1], parts[2], parts[3]))
+        }
+        None => None,
+    };
+
+    let stream = TcpStream::connect(&connect).map_err(|e| format!("connect {connect}: {e}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .map_err(|e| e.to_string())?;
+    println!("mcview: connected to {connect}");
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+
+    let mut blocks: Option<BlockWorld> = None;
+    let mut frames = 0u64;
+    let mut pictures = 0u64;
+    let mut printed_villages = 0usize;
+    let mut bad_lines = 0u64;
+    let started = Instant::now();
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => {
+                println!("mcview: the bridge closed the connection");
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                println!("mcview: {e}");
+                break;
+            }
+        }
+        let text = line.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let message = match parse_message(text) {
+            Ok(m) => m,
+            Err(e) => {
+                bad_lines += 1;
+                if bad_lines <= 5 {
+                    eprintln!("mcview: bad message: {e}");
+                }
+                continue;
+            }
+        };
+        if let Message::Hello {
+            size,
+            base_y,
+            sea_level,
+            canvas_top,
+            seed,
+            world,
+            palette,
+            protocol,
+            ..
+        } = &message
+        {
+            println!(
+                "mcview: protocol {protocol}, {size:?} world `{world}` seed {seed}, {} palette names",
+                palette.len()
+            );
+            blocks = Some(BlockWorld::new(size.0, size.1, *base_y, *sea_level, *canvas_top));
+        }
+        let Some(world) = blocks.as_mut() else {
+            // Joined mid-stream: ask for the tile field again.
+            println!("mcview: world messages before hello; asking for the tile field");
+            let mut out = stream.try_clone().map_err(|e| e.to_string())?;
+            out.write_all(b"{\"t\":\"tiles\"}\n").map_err(|e| e.to_string())?;
+            continue;
+        };
+        world.apply(&message);
+
+        if let Message::Notice { text } = &message {
+            println!("mcview: notice: {text}");
+            continue;
+        }
+        if let Message::Frame { info, .. } = &message {
+            frames += 1;
+            let render = prefix.is_some() && frames % every == 0;
+            if frames == 1 || render {
+                let (animals, monsters) = (info.animals, info.monsters);
+                println!(
+                    "mcview: year {:>3} tick {:>6} | pop {:>3} | villages {:>2} | kingdoms {:>2} | animals {animals} monsters {monsters} | {} | {}",
+                    info.year, info.tick, info.pop, info.villages, info.kingdoms, info.age, info.hash
+                );
+                for (year, text) in info.news.iter().take(3) {
+                    println!("           {year}: {text}");
+                }
+                if frames == 1 || printed_villages != world.villages.len() {
+                    printed_villages = world.villages.len();
+                    for v in world.villages.iter().take(8) {
+                        println!(
+                            "           village {:<12} {:<6} pop {:>3} at tile {:>3},{:<3} kingdom {}",
+                            v.name, v.race, v.pop, v.col, v.row, v.kingdom
+                        );
+                    }
+                }
+            }
+            if let Some(prefix) = &prefix {
+                if render {
+                    let img = world.render_iso(&IsoOpts {
+                        scale,
+                        region,
+                        units: true,
+                        grid: false,
+                    });
+                    // Sparse renders get one file per year; a render-every-frame run
+                    // gets the tick too, so it does not write the same file 20 times.
+                    let path = if every <= 20 {
+                        format!("{prefix}-y{:03}-t{:06}.png", info.year, info.tick)
+                    } else {
+                        format!("{prefix}-y{:03}.png", info.year)
+                    };
+                    worldforge::png::write_png(&path, &img).map_err(|e| format!("png {path}: {e}"))?;
+                    pictures += 1;
+                    println!("           wrote {path} ({}x{})", img.width, img.height);
+                }
+            }
+        }
+        if let Some(limit) = timeout {
+            if started.elapsed() > limit {
+                println!("mcview: stopping after {frames} frames");
+                break;
+            }
+        }
+    }
+    if let Some(world) = &blocks {
+        println!(
+            "mcview: applied {} messages, {} blocks set, {} cleared, {} units tracked, {pictures} pictures",
+            world.messages, world.blocks_set, world.blocks_cleared, world.units.len()
+        );
+    }
+    if bad_lines > 0 {
+        println!("mcview: {bad_lines} unparseable lines (the bridge has a bug)");
+        return Err(format!("{bad_lines} unparseable lines on the wire"));
     }
     Ok(())
 }

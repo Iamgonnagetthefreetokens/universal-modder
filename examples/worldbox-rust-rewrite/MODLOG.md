@@ -73,11 +73,55 @@ crown kings, fight over the same island and sign peace every other year. Frames 
    explicit (hoisted reads, copied-out tuples, written-back results) — which is also what makes the
    hash a valid oracle.
 
+## 2026-10-03 — the Minecraft bridge (second session)
+
+Asked: *"can you combine Minecraft to WorldBox like a WorldBox world but visuals in Minecraft?"*
+Answer: the simulation stays here in Rust; Minecraft becomes the renderer. New example,
+`examples/worldbox-in-minecraft`.
+
+1. **Where the mapping lives.** The one decision that shaped everything: the *mapping* (biome → block,
+   elevation → column height, building → structure, unit → mob, kingdom colour → concrete) is Rust's
+   job, in `src/bridge.rs`, with unit tests over every biome, tree, building kind, mob and message. The
+   Fabric mod applies it and decides nothing. A renderer that asks no questions cannot disagree with
+   the simulation, and it stays small enough to read in one sitting (~900 lines of Java).
+2. **Two clients, one protocol.** `worldforge serve` publishes JSON lines on `127.0.0.1`; then
+   `worldforge mcview` *is* the Minecraft side without Minecraft — same messages, same block world,
+   drawn isometrically. That is what made the whole thing testable in this sandbox (no Minecraft here)
+   and what produced the pictures in the example's README.
+3. **Wire bugs the tests caught.** Three, all in the "obvious in hindsight" class:
+   - `frame` carried `"villages"` twice — a count and an array. Every JSON parser kept the last one, so
+     the array silently vanished. There is now a test asserting no message repeats a key.
+   - The bridge answered commands by echoing Rust `Debug` strings (`Tiles`) into the client's stream.
+     A client that trusts the protocol got a parse error. There is now a test that *every* line on the
+     wire parses as JSON.
+   - Messages went out tiles-then-hello, so a client that joined mid-stream applied a tile field to a
+     world it had not been told the shape of. Hello goes first now, and the mod re-requests tiles on
+     connect anyway.
+4. **The isometric client earned its keep.** Its first version framed the picture from the whole map and
+   drew a tiny figure in a big black field — the renderer sized its canvas from the tallest possible
+   column instead of the ones actually present. Fixing the extent maths turned it from a curiosity into
+   the artifact generator: `run-artifacts.sh` starts a bridge, renders the map and a zoom, and strips
+   the PNGs (worldforge's zero-dependency writer stores uncompressed, which is 20x bigger than it needs
+   to be — 2.2 MB → 89 KiB).
+5. **Notices instead of silence.** A refused command (spawning on water) used to be logged to the bridge
+   terminal and nowhere else. Now it is a `notice` message to the client that asked, shown in chat by
+   the mod — the first time the client id in a parsed command had a real use.
+6. **Realm, not village.** Borders are computed off the *kingdom* a village belongs to, so a kingdom has
+   one outline instead of a sugar-grid per hamlet. Two villages of one kingdom share a realm; a village
+   with no king is its own. Small change, big readability win in the render.
+7. **What is verified, and what is not.** Verified: 185 tests, clippy clean, the bridge over a real
+   socket (message order, JSON validity, edits after a nuke, pause freezing the clock, a second client
+   attaching), and a 96×64 world rendered from live frames. Not verified: the Fabric mod has never run
+   inside Minecraft — the sandbox has no client, and 26.3's API could not be compiled against here
+   either. That is stated in the example's README rather than glossed over.
+
 ## Numbers
 
 * ~7,000 lines of Rust (about 40% of that tests), zero dependencies, `cargo build --offline` clean.
 * 145 tests: unit tests per module + `tests/e2e.rs` running the real binary.
 * 49 god powers, 24 biomes, 36 species, 13 ages, 13 building kinds.
+* 185 tests now: 166 lib + 10 e2e + 8 bridge (`tests/mc.rs`, real sockets) + 1 doc.
+* The bridge: 116-name palette, ~9k blocks placed for a 96×64 map, 60 simulated ticks/s over one socket.
 * 100 years of a 96×64 world (9 villages, 3 kingdoms, 121 people alive) in ~2 s release, ~25 s debug;
   the run's hash is `0xd5c223e4a58f50c1`.
 
@@ -91,6 +135,8 @@ crown kings, fight over the same island and sign peace every other year. Frames 
 
 ## Next
 
+* Run the Fabric mod in a real Minecraft client and fix whatever 26.3's API disagrees with; then decide
+  whether Minecraft fights should feed damage back into the simulation.
 * A playable window (`macroquad`) over the same `World` — the CLI/script layer already gives it a brain.
 * Port the save format into a "world share" text format so a run can be pasted into a chat.
 * If the human wants their own install read: a separate, opt-in tool that reads their WorldBox saves on

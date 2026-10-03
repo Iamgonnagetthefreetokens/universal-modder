@@ -1,0 +1,23 @@
+{
+	"schemaVersion": 1,
+	"id": "wfbox",
+	"version": "${version}",
+	"name": "worldforge in Minecraft",
+	"description": "Draws a worldforge simulation -- running in Rust, published over a local socket -- as blocks and mobs in Minecraft.",
+	"authors": [
+		"universal-modder"
+	],
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"dev.um.wfbox.WfBox"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

@@ -57,7 +57,7 @@ Enough to drive a simulation, from public docs only:
 
 ## Build steps
 1. `git clone` the toolkit, `cd examples/worldbox-rust-rewrite/worldforge`.
-2. `cargo build --offline --release && cargo test --offline` (145 tests).
+2. `cargo build --offline --release && cargo test --offline` (185 tests with the Minecraft bridge).
 3. `./target/release/worldforge demo --seed 7 --size medium` to watch a world run.
 4. `./target/release/worldforge script ../artifacts/growth.wf` writes `frames/year-0*.png`.
 5. Field note + PR via the toolkit: `um kb check`, `um kb index`, `um kb pr`.
@@ -106,6 +106,12 @@ None. The PNG writer draws flat-colour hex-ish cells; there is no art to ship an
 One agent session. Four `cargo test` iterations on the simulation's *feel* (starvation, stone),
 one performance hunt (the 1,133-unit spiral), then the toolkit wrap-up (journal, README, sources,
 this note).
+
+## Follow-on: the Minecraft bridge
+The same crate now publishes itself for Minecraft (`worldforge serve` + a Fabric mod); that half has its
+own note: [A WorldBox world as Minecraft visuals](../minecraft-java/worldbox-in-minecraft.md)
+(`examples/worldbox-in-minecraft`). The simulation stayed the brain; the mapping lives in
+`src/bridge.rs` with unit tests, so the Minecraft side decides nothing.
 
 ## Open questions
 - Whether the human wants their own install read (save files, data tables) — that would be a separate

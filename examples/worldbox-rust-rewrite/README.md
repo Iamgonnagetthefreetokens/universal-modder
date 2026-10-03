@@ -19,6 +19,10 @@ cargo test  --offline
 ./target/release/worldforge show world.wfz --png world.png --scale 6
 ./target/release/worldforge step world.wfz 500 --out world2.wfz
 ./target/release/worldforge powers                                # list all 49 god powers
+
+# and the Minecraft bridge (see ../worldbox-in-minecraft):
+./target/release/worldforge serve --size large --seed 20241003     # publish for a Fabric mod
+./target/release/worldforge mcview --connect 127.0.0.1:25607       # be the mod, without Minecraft
 ```
 
 ## What's in it
@@ -38,6 +42,9 @@ cargo test  --offline
 | `save` | Hand-written binary codec, versioned, round-trips exactly |
 | `render` | ASCII/ANSI terminal map, xterm-256 colour, an RGB frame renderer and a text panel |
 | `png` | In-tree PNG encoder (CRC-32 + stored-deflate zlib), byte-for-byte reproducible |
+| `bridge` | The Minecraft mapping: biome → block, tile → column, building → structure, unit → mob, kingdom → concrete, plus the JSON messages |
+| `serve` | `worldforge serve`: runs the world and publishes it on `127.0.0.1`, takes commands back |
+| `json` / `mcworld` | A small JSON reader, and the Minecraft side of the bridge (wire → block world → isometric PNG) |
 | `script` | A tiny scenario language so a whole run lives in a text file |
 
 ## Determinism is the point
@@ -79,6 +86,7 @@ worldforge/
   src/bin/        the CLI
   examples/       rise-and-fall.wf — a scenario you can run
   tests/e2e.rs    end-to-end tests: script → save → reload → CLI → PNG → invariants
+  tests/mc.rs     the Minecraft bridge over a real socket: hello → tiles → frames → commands
 artifacts/
   growth.wf         the 100-year, four-civilisation run
   growth-run.txt    its output
@@ -90,11 +98,14 @@ docs/sources.md   where the mechanics came from
 ## Verifying it
 
 ```
-cargo test --offline                      # 145 tests
+cargo test --offline                      # 185 tests (166 lib + 10 e2e + 8 bridge + 1 doc)
 cargo clippy --offline --all-targets      # clean
 ```
 
-The end-to-end tests run the real binary, save a world, reload it in a second process and compare
+The bridge tests start a real server on a free loopback port and drive it with a real socket: they
+check the message order, that every line on the wire parses as JSON, that a nuke comes back as tile
+edits, that a paused world stops ticking, that a refused command is answered, and that two clients can
+attach to one simulation. The end-to-end tests run the real binary, save a world, reload it in a second process and compare
 hashes, check that 3,000+ ticks of disasters and powers leave every invariant intact, and confirm the
 PNG writer's output is byte-stable.
 
@@ -103,7 +114,10 @@ PNG writer's output is byte-stable.
 * This is a **systems** reimplementation, not a content port: there are 49 powers here, WorldBox ships
   ~374, and its art, sound and ~700 named creatures are not reproduced (that would be a different job
   and would need the game's own assets).
-* No GPU/UI: the renderer writes ASCII and PNG. A playable UI would be the next project (`macroquad`
+* The Minecraft bridge (`../worldbox-in-minecraft`) is built and tested as far as this sandbox allows —
+  the Rust client, the wire protocol and the block mapping are verified end to end, but the Fabric mod
+  itself has not been run in a real Minecraft client.
+* No GPU/UI of its own: the renderer writes ASCII and PNG. A playable UI would be the next project (`macroquad`
   or `wgpu`), and the crate is deliberately dependency-free so that stays easy to bolt on.
 * It was not playtested in WorldBox itself, because the game isn't installed in this sandbox — the
   oracles are the unit tests, the determinism hash and the rendered frames.
