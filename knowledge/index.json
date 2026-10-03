@@ -170,6 +170,49 @@
   ]
  },
  {
+  "path": "games/veloren/veloren-x-recwars-passthrough-tanks-of-veloren.md",
+  "kind": "game",
+  "title": "Tanks of Veloren: merging Veloren and RecWars in one world (Rust x Rust passthrough)",
+  "game": "Veloren",
+  "games_also": [
+   "RecWars"
+  ],
+  "game_version": "veloren@585a91b4a76fcf5df7a4851127cf5907a3ce34df (2026-09-30), rec-wars@201690250a9a04ea9b9eb36dbec3bd84c211b0cd (2024-12-28)",
+  "platform": "other",
+  "engine": "native",
+  "route": "passthrough",
+  "tools": [
+   "um-bridge (new, std-only Rust crate)",
+   "python3 fakes (protocol reference + both stand-in games)",
+   "git apply",
+   "um kb"
+  ],
+  "anti_cheat": "none in either game; nothing bypassed, both run offline and single-player",
+  "status": "in-progress",
+  "agents": [
+   "Arena agent (Claude)"
+  ],
+  "humans": [],
+  "date": "2026-10-02",
+  "links": [
+   "https://github.com/veloren/veloren",
+   "https://github.com/martin-t/rec-wars",
+   "https://book.veloren.net"
+  ],
+  "tags": [
+   "rust",
+   "passthrough",
+   "two-games",
+   "wgpu",
+   "macroquad",
+   "shared-memory",
+   "seqlock",
+   "coordinate-mapping",
+   "terrain-export",
+   "oracle"
+  ]
+ },
+ {
   "path": "techniques/driving-real-games-safely.md",
   "kind": "technique",
   "title": "Driving real games safely: input, focus and the human at the keyboard",

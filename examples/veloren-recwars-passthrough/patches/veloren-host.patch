@@ -1,0 +1,459 @@
+# Veloren (host side) — the RecWars passthrough bridge
+#
+# Reference implementation for examples/veloren-recwars-passthrough in universal-modder.
+# Pinned upstream: veloren/veloren @ 585a91b4a76fcf5df7a4851127cf5907a3ce34df (2026-09-30, GPL-3.0)
+#
+#   git clone https://github.com/veloren/veloren.git
+#   cd veloren && git checkout 585a91b4a76fcf5df7a4851127cf5907a3ce34df
+#   cp -r <universal-modder>/examples/veloren-recwars-passthrough/bridge ./um-bridge
+#   git apply <this patch>
+#   UM_BRIDGE=1 cargo run --release -p veloren-voxygen
+#
+# Verified with `git apply --check` against the pinned commit (see patches/README.md). NOT compiled:
+# the machine that wrote this had no Rust toolchain and no GPU. Expect to fix small compile errors and
+# to add the drawing half (see the comment in voxygen/src/session/mod.rs and docs/ARCHITECTURE.md).
+diff --git a/voxygen/Cargo.toml b/voxygen/Cargo.toml
+--- a/voxygen/Cargo.toml
++++ b/voxygen/Cargo.toml
+@@ -48,6 +48,10 @@
+ default = ["default-publish", "hot-reloading", "shaderc-from-source", "egui-ui"]
+ 
+ [dependencies]
++# The Veloren x RecWars passthrough bridge. Copy `um-bridge/` from the universal-modder example
++# (examples/veloren-recwars-passthrough/bridge) into this repo's root; it has no dependencies of
++# its own, so it links into the client without touching the dependency graph.
++um-bridge = { path = "../um-bridge" }
+ client = { package = "veloren-client", path = "../client" }
+ common = { package = "veloren-common", path = "../common" }
+ common-base = { package = "veloren-common-base", path = "../common/base" }
+diff --git a/voxygen/src/lib.rs b/voxygen/src/lib.rs
+--- a/voxygen/src/lib.rs
++++ b/voxygen/src/lib.rs
+@@ -12,6 +12,7 @@
+ #[macro_use]
+ pub mod ui;
+ pub mod audio;
++pub mod bridge;
+ pub mod cli;
+ pub mod cmd;
+ mod credits;
+diff --git a/voxygen/src/bridge/mod.rs b/voxygen/src/bridge/mod.rs
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/voxygen/src/bridge/mod.rs
+@@ -0,0 +1,393 @@
++//! The RecWars passthrough bridge, host side (Veloren).
++//!
++//! Publishes this client's camera and the terrain around the player to the guest, reads the guest's
++//! simulation and frames back, and (phase 2, marked below) draws them into the scene. It is inert
++//! unless the environment says otherwise, so a normal game is untouched:
++//!
++//! ```text
++//! UM_BRIDGE=1            enable the host side
++//! UM_BRIDGE_PORT=47811   control-channel port (default in um-bridge's BridgeConfig)
++//! UM_BRIDGE_RUN_DIR=…    run directory holding the region files
++//! UM_BRIDGE_SEA=0.0      sea level in metres, for the terrain classification
++//! ```
++//!
++//! Everything here is deliberately a *mod hook*, not engine architecture: one call from
++//! `Session::tick` (see the patch), a `OnceLock` to hold the bridge, and no changes to any Veloren
++//! type. That keeps the diff reviewable and the feature removable.
++//!
++//! See `docs/PROTOCOL.md` and `docs/MAPPING.md` in the universal-modder example for the contract, and
++//! `docs/ARCHITECTURE.md` for where the drawing call goes in `Scene::render` (phase 2: the guest's
++//! entities as sprites in the first pass, and its framebuffer on a quad in the world).
++
++#![allow(dead_code)] // the frame/entity fields are read by the phase-2 renderer
++
++use std::collections::HashSet;
++use std::sync::{Mutex, OnceLock};
++
++use std::time::Instant;
++
++use client::Client;
++use common::terrain::{BlockKind, TerrainGrid};
++use common::vol::FilledVox;
++use tracing::{debug, info, warn};
++use vek::*;
++
++use crate::scene::camera::Camera;
++use um_bridge::mapping::{self, Cell, TerrainHeader};
++use um_bridge::{Bridge, BridgeConfig, PlacedEntity, Role, WatchdogState};
++
++/// One cell is one guest tile, so the guest needs no resampling (docs/MAPPING.md §2).
++const CELL_M: f32 = mapping::TILE_M;
++/// 64 x 64 cells = a 512 m square, comfortably inside the chunks a client keeps loaded.
++const GRID: u16 = 64;
++/// How often the camera is published (20 Hz).
++const CAM_PERIOD_S: f64 = 0.05;
++/// How often the heightfield is re-exported, and how far the player may wander before it must be.
++const TERRAIN_PERIOD_S: f64 = 2.0;
++
++static BRIDGE: OnceLock<Option<Mutex<HostBridge>>> = OnceLock::new();
++
++/// True when the user asked for the bridge.
++pub fn enabled() -> bool {
++    std::env::var("UM_BRIDGE").is_ok_and(|v| v != "0" && !v.is_empty())
++}
++
++/// Called from `Session::tick` every frame. Cheap no-op when the bridge is off or still connecting.
++pub fn maintain(client: &Client, camera: &Camera, resolution: Vec2<u32>) {
++    if !enabled() {
++        return;
++    }
++    // Started on first use so that a failed start (no run dir, no socket) is reported once and then
++    // never costs anything again.
++    let Some(cell) = BRIDGE.get_or_init(|| HostBridge::start().map(Mutex::new)) else {
++        return;
++    };
++    // If the render thread happens to hold the lock, skip this frame rather than wait: the bridge is
++    // never worth a stalled frame.
++    if let Ok(mut bridge) = cell.try_lock() {
++        bridge.tick(client, camera, resolution);
++    }
++}
++
++/// The guest's entities, placed in Veloren's world, for the renderer (phase 2) and debug commands.
++pub fn guest_entities() -> Vec<PlacedEntity> {
++    BRIDGE
++        .get()
++        .and_then(|cell| cell.as_ref())
++        .and_then(|cell| cell.lock().ok())
++        .map(|bridge| bridge.guest.clone())
++        .unwrap_or_default()
++}
++
++/// The guest's latest frame (header, BGRA pixels), for the phase-2 holotable texture.
++pub fn guest_frame() -> Option<(um_bridge::FrameHeader, Vec<u8>)> {
++    BRIDGE
++        .get()
++        .and_then(|cell| cell.as_ref())
++        .and_then(|cell| cell.lock().ok())
++        .and_then(|bridge| bridge.frame.clone())
++}
++
++/// Where the guest's arena sits in this world, or `None` before the first export.
++pub fn arena() -> Option<TerrainHeader> {
++    BRIDGE
++        .get()
++        .and_then(|cell| cell.as_ref())
++        .and_then(|cell| cell.lock().ok())
++        .map(|bridge| bridge.header)
++}
++
++struct HostBridge {
++    bridge: Bridge,
++    started: Instant,
++    header: TerrainHeader,
++    terrain_center: Vec2<f32>,
++    last_cam: f64,
++    last_terrain: f64,
++    /// Events already applied, so a republished ring buffer is not applied twice.
++    seen_events: HashSet<(u32, u8, i32, i32)>,
++    guest: Vec<PlacedEntity>,
++    frame: Option<(um_bridge::FrameHeader, Vec<u8>)>,
++    /// Counters, logged every few seconds so a player can see the bridge is alive.
++    events_applied: u64,
++    frames_seen: u64,
++    last_report: f64,
++    warned_offline: bool,
++}
++
++impl HostBridge {
++    fn start() -> Option<Self> {
++        let mut config = BridgeConfig::default();
++        if let Ok(dir) = std::env::var("UM_BRIDGE_RUN_DIR") {
++            config.run_dir = dir.into();
++        }
++        if let Ok(port) = std::env::var("UM_BRIDGE_PORT") {
++            if let Ok(port) = port.parse() {
++                config.port = port;
++            }
++        }
++        let mut bridge = match Bridge::new(Role::Host, config) {
++            Ok(bridge) => bridge,
++            Err(err) => {
++                warn!(?err, "bridge: could not start; the game will run unmodified");
++                return None;
++            }
++        };
++        let pid = std::process::id().to_string();
++        let run_dir = bridge.run_dir().display().to_string();
++        bridge.send(
++            "HELLO",
++            &[
++                ("v", "1"),
++                ("role", "host"),
++                ("app", "veloren"),
++                ("pid", pid.as_str()),
++                ("proto", "1"),
++                ("run_dir", run_dir.as_str()),
++            ],
++        );
++        info!(run_dir, "bridge: host side started, waiting for the guest (RecWars)");
++        let sea_level = std::env::var("UM_BRIDGE_SEA")
++            .ok()
++            .and_then(|v| v.parse().ok())
++            .unwrap_or(0.0);
++        Some(Self {
++            bridge,
++            started: Instant::now(),
++            header: TerrainHeader {
++                cell_m: CELL_M,
++                nx: GRID,
++                ny: GRID,
++                tile_m: CELL_M,
++                sea_level,
++                ..TerrainHeader::default()
++            },
++            terrain_center: Vec2::zero(),
++            last_cam: 0.0,
++            last_terrain: 0.0,
++            seen_events: HashSet::new(),
++            guest: Vec::new(),
++            frame: None,
++            events_applied: 0,
++            frames_seen: 0,
++            last_report: 0.0,
++            warned_offline: false,
++        })
++    }
++
++    fn tick(&mut self, client: &Client, camera: &Camera, resolution: Vec2<u32>) {
++        let now = self.started.elapsed().as_secs_f64();
++
++        // 1. control channel: the guest's handshake, liveness and focus changes
++        for msg in self.bridge.pump() {
++            match msg.kind.as_str() {
++                "WELCOME" => info!(
++                    app = msg.get("app"),
++                    pid = msg.get("pid"),
++                    frame = msg.get("frame"),
++                    "bridge: guest connected"
++                ),
++                "BYE" => warn!(reason = msg.get("reason"), "bridge: guest left"),
++                _ => debug!(kind = %msg.kind, "bridge: message"),
++            }
++        }
++
++        // 2. the guest's simulation, placed in this world
++        match self.bridge.guest_state() {
++            Ok(Some((_state, entities, events))) => {
++                let header = self.header;
++                self.guest = entities
++                    .iter()
++                    .map(|entity| self.bridge.placed(entity, &header))
++                    .collect();
++                for event in events {
++                    if self.seen_events.insert(event.once_key()) {
++                        self.events_applied += 1;
++                        self.on_guest_event(event);
++                    }
++                }
++                if self.seen_events.len() > 8192 {
++                    self.seen_events.clear(); // the ring is small; a reset is harmless
++                }
++                self.warned_offline = false;
++            }
++            Ok(None) => {}
++            Err(err) => debug!(?err, "bridge: guest state not readable yet"),
++        }
++
++        // 3. the guest's frame (used by the phase-2 holotable)
++        match self.bridge.guest_frame() {
++            Ok(Some(frame)) => {
++                self.frames_seen += 1;
++                self.frame = Some(frame);
++            }
++            Ok(None) => {}
++            Err(err) => debug!(?err, "bridge: guest frame not readable yet"),
++        }
++
++        // 4. our camera
++        if now - self.last_cam >= CAM_PERIOD_S {
++            self.last_cam = now;
++            let dependents = camera.dependents();
++            let focus_off = camera.get_focus_pos().map(|e| e.trunc());
++            let cam_pos = dependents.cam_pos + focus_off;
++            let cam_dir = dependents.cam_dir;
++            // Veloren yaw convention: yaw 0 looks along +y, and yawed_left adds +theta, so the yaw of
++            // a direction is atan2(-x, y). Pitch is the vertical part, clamped against a NaN.
++            let horiz = Vec2::new(cam_dir.x, cam_dir.y).try_normalized().unwrap_or(Vec2::unit_y());
++            let yaw = (-horiz.x).atan2(horiz.y);
++            let pitch = cam_dir.z.clamp(-1.0, 1.0).asin();
++            self.bridge.publish_camera(
++                cam_pos.x,
++                cam_pos.y,
++                cam_pos.z,
++                yaw,
++                pitch,
++                camera.get_effective_fov(),
++                (resolution.x, resolution.y),
++            );
++        }
++
++        // 5. our terrain, sampled from the chunks the client already has (no worldgen, no extra work)
++        let dependents = camera.dependents();
++        let focus_off = camera.get_focus_pos().map(|e| e.trunc());
++        let player = (dependents.cam_pos + focus_off).xy();
++        let arena_centre = Vec2::new(
++            self.header.origin_x + self.header.width_m() / 2.0,
++            self.header.origin_y + self.header.depth_m() / 2.0,
++        );
++        let moved = (arena_centre - self.terrain_center).magnitude() > CELL_M * 2.0;
++        if (now - self.last_terrain >= TERRAIN_PERIOD_S && self.started.elapsed().as_secs_f64() > 0.5)
++            || moved
++        {
++            self.last_terrain = now;
++            self.export_terrain(client, player);
++        }
++
++        // 6. liveness, and a periodic one-line report
++        if self.bridge.peer_state() == WatchdogState::Dead && !self.warned_offline {
++            self.warned_offline = true;
++            info!("bridge: guest is not responding; the world carries on without it");
++        }
++        if now - self.last_report >= 10.0 {
++            self.last_report = now;
++            info!(
++                guests_entities = self.guest.len(),
++                events_applied = self.events_applied,
++                frames_seen = self.frames_seen,
++                peer = ?self.bridge.peer_state(),
++                "bridge: report"
++            );
++        }
++    }
++
++    /// Phase 1: log what the guest did. Phase 2 applies these to this world (a local particle burst,
++    /// and — with the server plugin from docs/ARCHITECTURE.md §6 — a real server-side effect).
++    fn on_guest_event(&mut self, event: um_bridge::Event) {
++        let (x, y) = mapping::guest_to_host(event.x, event.y, &self.header);
++        match event.kind {
++            um_bridge::protocol::EV_EXPLOSION => info!(
++                x,
++                y,
++                radius_units = event.arg16,
++                power = event.arg,
++                "bridge: guest explosion"
++            ),
++            um_bridge::protocol::EV_KILL => info!(x, y, "bridge: guest kill"),
++            _ => debug!(kind = event.kind, x, y, "bridge: guest event"),
++        }
++    }
++
++    /// Sample the guest's grid out of the client's loaded chunks and hand it over.
++    fn export_terrain(&mut self, client: &Client, focus: Vec2<f32>) {
++        let nx = self.header.nx as usize;
++        let ny = self.header.ny as usize;
++        let origin_x = (focus.x - nx as f32 * CELL_M / 2.0) / CELL_M;
++        let origin_y = (focus.y - ny as f32 * CELL_M / 2.0) / CELL_M;
++        self.header.origin_x = origin_x.floor() * CELL_M;
++        self.header.origin_y = origin_y.floor() * CELL_M;
++        self.terrain_center = focus;
++
++        let ecs = client.state().ecs();
++        let terrain = ecs.read_resource::<TerrainGrid>();
++        let mut cells = Vec::with_capacity(nx * ny);
++        let mut unknown = 0usize;
++        for j in 0..ny {
++            for i in 0..nx {
++                let x = self.header.origin_x + (i as f32 + 0.5) * CELL_M;
++                let y = self.header.origin_y + (j as f32 + 0.5) * CELL_M;
++                match ground_height(&terrain, x, y) {
++                    Some(height) => cells.push(Cell::new(height, um_bridge::protocol::CELL_UNKNOWN)),
++                    None => {
++                        unknown += 1;
++                        cells.push(Cell::default()); // kind 0 = unknown = a wall for the guest
++                    }
++                }
++            }
++        }
++        // Classify with the whole grid in hand, exactly like the reference implementation, so the
++        // guest can trust the kinds it receives.
++        for j in 0..ny {
++            for i in 0..nx {
++                let kind = mapping::classify_cell(
++                    &cells,
++                    i,
++                    j,
++                    nx,
++                    ny,
++                    self.header.sea_level,
++                    self.header.cell_m,
++                );
++                cells[j * nx + i].kind = kind;
++            }
++        }
++        self.header.revision = self.header.revision.wrapping_add(1);
++        self.header.flags = if unknown > 0 { 2 } else { 1 };
++        let liquid = cells
++            .iter()
++            .any(|c| c.kind == um_bridge::protocol::CELL_WATER);
++        if liquid {
++            self.header.flags |= 4;
++        }
++        match self.bridge.export_terrain(&self.header, &cells) {
++            Ok(()) => info!(
++                revision = self.header.revision,
++                origin_x = self.header.origin_x,
++                origin_y = self.header.origin_y,
++                unknown_cells = unknown,
++                "bridge: exported terrain"
++            ),
++            Err(err) => warn!(?err, "bridge: terrain export failed"),
++        }
++    }
++}
++
++/// The top solid block at a world column, in metres. `None` = the column is not loaded here, which
++/// the guest sees as an unknown cell (a wall), never as a hole in the world.
++fn ground_height(terrain: &TerrainGrid, x: f32, y: f32) -> Option<f32> {
++    let wpos = Vec2::new(x.floor() as i32, y.floor() as i32);
++    let chunk_key = TerrainGrid::chunk_key(wpos);
++    let chunk = terrain.get_key(chunk_key)?;
++    let z_min = chunk.get_min_z() + 1;
++    let z_max = chunk.get_max_z() - 1;
++    let mut z = z_max;
++    while z >= z_min {
++        match terrain.get(Vec3::new(wpos.x, wpos.y, z)) {
++            Ok(block) => {
++                if block.is_filled() {
++                    // The block's top face: a block at z occupies [z, z + 1)
++                    return Some(z as f32 + 1.0);
++                }
++            }
++            Err(_) => return None,
++        }
++        z -= 1;
++    }
++    None
++}
++
++/// Convenience for the phase-2 renderer: is this block kind water? (Kept here so the drawing code
++/// does not have to re-derive the guest's cell kinds.)
++pub fn is_liquid(block: BlockKind) -> bool {
++    block.is_liquid()
++}
+diff --git a/voxygen/src/session/mod.rs b/voxygen/src/session/mod.rs
+--- a/voxygen/src/session/mod.rs
++++ b/voxygen/src/session/mod.rs
+@@ -643,6 +643,17 @@
+             let focus_pos = self.scene.camera().get_focus_pos();
+             let focus_off = focus_pos.map(|e| e.trunc());
+             let cam_pos = cam_pos + focus_off;
++
++            // universal-modder bridge (Veloren x RecWars passthrough). Publishes this camera and the
++            // terrain around the player to the guest, reads the guest's simulation and frames back.
++            // A no-op unless UM_BRIDGE=1: see voxygen/src/bridge/mod.rs. The drawing half of the
++            // merge goes in `Scene::render`'s first pass (voxygen/src/scene/mod.rs:1552) and is
++            // documented in the example's docs/ARCHITECTURE.md.
++            crate::bridge::maintain(
++                &client,
++                self.scene.camera(),
++                global_state.window.renderer_mut().resolution(),
++            );
+ 
+             let (is_aiming, aim_dir_offset) = {
+                 let is_aiming = client

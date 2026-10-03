@@ -1,0 +1,29 @@
+[package]
+name = "um-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "The Veloren x RecWars passthrough bridge: control channel, shared regions, coordinate mapping"
+license = "MIT"
+repository = "https://github.com/rehan-remade/universal-modder"
+keywords = ["game", "mod", "passthrough", "bridge"]
+categories = ["game-development"]
+
+[dependencies]
+# Deliberately none. The crate is linked into two games with their own (large, pinned) dependency
+# trees, so it uses only `std`: no serde, no tokio, no bytemuck. The wire format is written by hand and
+# checked against the Python reference's test vectors (testdata/vectors.rs).
+
+[target.'cfg(unix)'.dependencies]
+# (none: std::os::unix::fs::FileExt provides pread/pwrite)
+
+[target.'cfg(windows)'.dependencies]
+# (none: std::os::windows::fs::FileExt provides seek_read/seek_write)
+
+[lib]
+name = "um_bridge"
+path = "src/lib.rs"
+
+[[test]]
+name = "conformance"
+path = "tests/conformance.rs"
